@@ -6,6 +6,7 @@
 import json
 import os
 import sqlite3
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -20,7 +21,13 @@ class Storage:
         if self.mode not in {"sqlite", "supabase"}:
             raise ValueError("DATABASE_MODE должен быть sqlite или supabase")
         if self.mode == "sqlite":
-            self.path = Path(path or os.getenv("SQLITE_PATH", str(ROOT / "data/equa.db")))
+            # На Vercel файлы приложения недоступны для записи. /tmp — только
+            # временная демо-история отдельного экземпляра, не постоянная база.
+            self.ephemeral = os.getenv("VERCEL") == "1"
+            default_path = (Path(tempfile.gettempdir()) / "equa/equa.db"
+                            if self.ephemeral else ROOT / "data/equa.db")
+            self.path = Path(path or (str(default_path) if self.ephemeral
+                                     else os.getenv("SQLITE_PATH", str(default_path))))
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.connect() as db:
                 db.executescript((ROOT / "sql/local.sql").read_text(encoding="utf-8"))

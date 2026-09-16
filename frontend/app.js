@@ -239,7 +239,11 @@ $('#refresh-history').onclick = () => safely(loadHistory);
 updatePolicyLabels();
 safely(async () => {
   const [health, report] = await Promise.all([api('/health'), api('/report', policy)]);
-  $('#environment').textContent = health.database === 'sqlite' ? 'LOCALHOST · SQLite' : 'LOCALHOST · Supabase';
+  // Облачная демо-история временная: не обещаем сохранность SQLite между запусками.
+  const hostLabel = health.environment === 'vercel' ? 'VERCEL' : 'LOCALHOST';
+  $('#environment').textContent = health.ephemeral_history
+    ? `${hostLabel} · временная история`
+    : `${hostLabel} · ${health.database === 'sqlite' ? 'SQLite' : 'Supabase'}`;
   renderReport(report); ready = true;
   await loadRecent();
   await navigate(location.hash.slice(1) || 'overview');

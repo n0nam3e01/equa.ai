@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 import logging
+import os
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
@@ -38,7 +39,9 @@ def index():
 @app.get("/api/health")
 def health():
     # Показывает выбранный адаптер. Это не проверка доступности облачного проекта.
-    return {"status": "ready", "database": app.state.storage.mode, "data_source": "synthetic"}
+    return {"status": "ready", "database": app.state.storage.mode, "data_source": "synthetic",
+            "environment": "vercel" if os.getenv("VERCEL") == "1" else "local",
+            "ephemeral_history": getattr(app.state.storage, "ephemeral", False)}
 
 
 @app.post("/api/report")
