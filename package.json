@@ -1,0 +1,25 @@
+{
+  "name": "equa-ai-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "React-\u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442\u044b \u0438 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442\u044b \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0438 \u0444\u0440\u043e\u043d\u0442\u0435\u043d\u0434\u0430 equa.ai",
+  "scripts": {
+    "build": "esbuild frontend/react/enhancements.jsx --bundle --format=esm --jsx=automatic --minify --outfile=frontend/dist/enhancements.js",
+    "watch": "npm run build -- --watch",
+    "browser": "playwright-cli",
+    "reactbits": "reactbits-dev-mcp"
+  },
+  "dependencies": {
+    "@fontsource-variable/manrope": "^5.3.0",
+    "@playwright/cli": "^0.1.20",
+    "clsx": "^2.1.1",
+    "esbuild": "^0.28.2",
+    "gsap": "^3.15.0",
+    "motion": "^13.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "reactbits-dev-mcp-server": "^1.1.2",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3"
+  }
+}

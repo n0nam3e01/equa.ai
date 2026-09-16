@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- Интерфейс обращается к Python через /api; секретов Supabase в браузере нет. -->
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101014">
+  <title>equa.ai — лаборатория антифрода</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23131218'/%3E%3Cpath d='M10 16h20M10 24h20' stroke='%23a78bfa' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/dark.css">
+  <script src="/static/app.js" type="module"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Перейти к содержимому</a>
+  <!-- Постоянная навигация между рабочими экранами без перезагрузки страницы. -->
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="equa.ai — главная"><span class="brand-mark">=</span> equa<span>.ai</span></a>
+    <div class="workspace">FINTECH <span>01</span></div>
+    <nav aria-label="Разделы приложения">
+      <a class="nav-button active" data-view="overview" href="#overview"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span> Обзор <small>01</small></a>
+      <a class="nav-button" data-view="transactions" href="#transactions"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></span> Транзакции <small>02</small></a>
+      <a class="nav-button" data-view="simulator" href="#simulator"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/></svg></span> Проверить платёж <small>03</small></a>
+      <a class="nav-button" data-view="policy" href="#policy"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v7L4 20h16l-6-10V3M8 15h8"/></svg></span> Лаборатория <small>04</small></a>
+      <a class="nav-button" data-view="history" href="#history"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2"/></svg></span> История проверок <small>05</small></a>
+    </nav>
+    <div class="sidebar-note"><span class="tiny-label">ПРИНЦИП EQUA</span><p>Защита платежей.<br>С уважением к клиенту.</p><div class="balance-line"></div><small>Риск ↔ Удобство</small></div>
+    <div class="profile"><span class="avatar">EQ</span><div>Команда equa.ai<small>Overclock Hackathon 2026</small></div></div>
+  </aside>
+  <main id="main-content" tabindex="-1">
+    <header class="topbar"><span>Рабочее пространство <b>/</b> <span id="breadcrumb">Обзор</span></span><span class="environment" id="environment">Подключение…</span></header>
+    <div class="content">
+      <div class="demo-note"><span class="demo-label">ДЕМО</span> Синтетические данные. Результаты показывают работу прототипа.</div>
+      <div id="error" class="error" role="alert" hidden></div>
+      <!-- Каждая секция имеет собственный экран; hidden исключает её из навигации клавиатурой. -->
+      <section id="overview" class="view">
+        <div class="page-heading"><div><p class="eyebrow">БАЛАНС ПОД КОНТРОЛЕМ</p><h1>Обзор платежей</h1><p class="subtitle">Сравнение стратегий защиты на тестовых данных.</p></div><button class="primary" data-goto="simulator">Проверить платёж <span>↗</span></button></div>
+        <div class="section-caption"><span>Тестовая выборка <b id="test-count">—</b></span><span id="model-label">Обучаем модель…</span></div>
+        <div class="stats" id="stats" aria-live="polite"><article class="stat">Загружаем расчёты…</article></div>
+        <div class="overview-grid">
+          <article class="panel cost-panel"><div class="panel-heading"><div><p class="eyebrow">ЭКОНОМИКА РЕШЕНИЙ</p><h2>Стоимость решений</h2></div><span class="unit">₸ / тестовая выборка</span></div><div id="cost-chart"></div><div class="chart-legend"><span><i class="legend-loss"></i> Пропущенный фрод</span><span><i class="legend-friction"></i> Проверки и неудобство</span></div><p class="footnote">Оценка по известным меткам. Эффект проверки и стоимость неудобства заданы в лаборатории.</p></article>
+          <article class="decision-panel"><p class="eyebrow">ПОЛИТИКА EQUA</p><h2>Решения equa</h2><p class="decision-description">Распределение решений на тесте</p><div id="action-mix"></div><button class="text-button light" data-goto="policy">Настроить баланс <span>→</span></button></article>
+        </div>
+        <article class="panel recent-panel"><div class="panel-heading"><h2>Транзакции тестовой выборки</h2><a class="recent-link" href="#transactions" data-view="transactions">Все операции →</a></div><div class="table-scroll"><table><thead><tr><th>Операция</th><th>Сумма</th><th>Страна</th><th>Риск</th><th>Решение</th></tr></thead><tbody id="recent-body"></tbody></table></div></article><article class="panel"><div class="panel-heading"><div><p class="eyebrow">ПРОЗРАЧНАЯ ПРОВЕРКА</p><h2>Что стоит за результатом</h2></div><span class="badge">ML · Python</span></div><div class="model-grid" id="model-stats"></div></article>
+      </section>
+      <section id="transactions" class="view" hidden>
+        <div class="page-heading"><div><p class="eyebrow">ЖУРНАЛ ТЕСТОВОЙ ВЫБОРКИ</p><h1>Транзакции</h1><p class="subtitle">Откройте операцию, чтобы проверить её параметры в симуляторе.</p></div></div>
+        <article class="panel"><div class="filters"><label class="search-label">Найти операцию<input id="search" type="search" name="search" autocomplete="off" spellcheck="false" placeholder="Например, EQ-080001…"></label><label>Решение<select id="action-filter" name="action"><option value="all">Все решения</option><option value="approve">Разрешить</option><option value="challenge">Проверить</option><option value="block">Заблокировать</option></select></label></div><div class="table-scroll"><table><thead><tr><th>Операция / клиент</th><th>Сумма</th><th>Страна</th><th>Риск</th><th>Решение</th><th>Метка генератора</th><th></th></tr></thead><tbody id="transaction-body"></tbody></table></div><div class="pagination"><span id="page-description"></span><div><button class="secondary" id="prev-page">← Назад</button><button class="secondary" id="next-page">Далее →</button></div></div></article>
+      </section>
+      <section id="simulator" class="view" hidden>
+        <div class="page-heading"><div><p class="eyebrow">LIVE DEMO</p><h1>Проверка платежа</h1><p class="subtitle">Укажите параметры операции — получите решение и его причины.</p></div></div>
+        <div class="simulation-grid"><article class="panel"><div class="panel-heading"><h2>Параметры операции</h2><span class="badge">KZT</span></div><div class="presets"><button class="preset active" data-preset="normal">Обычная покупка</button><button class="preset" data-preset="travel">Покупка в поездке</button><button class="preset" data-preset="fraud">Подозрительная серия</button></div>
+          <form id="score-form" autocomplete="off"><div class="form-grid"><label>Сумма, ₸<input name="amount" type="number" value="25000" min="1" max="10000000" step="0.01" required></label><label>Средний чек из истории, ₸<input name="average_amount" type="number" value="18000" min="100" max="10000000" step="0.01" required></label><label>Страна операции<select name="country"><option value="KZ">Казахстан</option><option value="TR">Турция</option><option value="DE">Германия</option><option value="US">США</option><option value="BR">Бразилия</option></select></label><label>Обычная страна<select name="home_country"><option value="KZ">Казахстан</option><option value="TR">Турция</option><option value="DE">Германия</option><option value="US">США</option><option value="BR">Бразилия</option></select></label><label>Категория<select name="merchant"><option value="retail">Покупки</option><option value="travel">Путешествия</option><option value="digital">Цифровые товары</option><option value="transfer">Переводы</option></select></label><label>Операций за 10 минут<input name="frequency" type="number" value="1" min="1" max="100" required></label></div><label class="checkbox-label"><input name="new_device" type="checkbox"> Новое устройство</label><p class="footnote">Включая текущую операцию. В демо историю вводите вы; в интеграции её формирует сервер платёжного сервиса.</p><button class="primary full-width" id="score-button" type="submit">Рассчитать решение <span>→</span></button></form>
+        </article><article class="panel result-panel" id="score-result" aria-live="polite"><div class="empty-state"><span class="empty-symbol">=</span><h2>Сначала — контекст.</h2><p>Заполните параметры или выберите сценарий.<br>Здесь появятся риск, причины и стоимость действий.</p></div></article></div>
+      </section>
+      <section id="policy" class="view" hidden>
+        <div class="page-heading"><div><p class="eyebrow">ЛАБОРАТОРИЯ ПОЛИТИКИ</p><h1>Лаборатория политики</h1><p class="subtitle">Измените допущения и сравните три стратегии на одинаковых данных.</p></div></div>
+        <div class="policy-grid"><article class="panel"><h2>Бизнес-допущения</h2><form id="policy-form" autocomplete="off">
+          <label class="range-label">Цена ложной блокировки <output id="block-output"></output><input name="block_cost" type="range" min="0" max="10000" step="100" value="2500"></label>
+          <label class="range-label">Цена одной проверки <output id="challenge-output"></output><input name="challenge_cost" type="range" min="0" max="500" step="5" value="25"></label>
+          <label class="range-label">Отказ честного клиента от проверки <output id="abandonment-output"></output><input name="abandonment" type="range" min="0" max="0.5" step="0.01" value="0.05"></label>
+          <label class="range-label">Доля фрода, остановленного проверкой <output id="effectiveness-output"></output><input name="effectiveness" type="range" min="0" max="1" step="0.01" value="0.9"></label>
+          <p class="footnote">Эти значения не измерены на реальных клиентах. Они определяют расчёт, но не меняют обученную модель.</p><button class="primary full-width" type="submit" id="policy-button">Пересчитать стратегии →</button><button class="text-button" id="reset-policy" type="button">Вернуть исходные значения</button>
+        </form></article><div><article class="panel"><div class="panel-heading"><h2>Сравнение стратегий</h2><span class="badge" id="policy-state">Применено</span></div><div class="table-scroll"><table><thead><tr><th>Стратегия</th><th>Потери, ₸</th><th>Ложные блокировки</th><th>Проверки</th></tr></thead><tbody id="policy-comparison"></tbody></table></div></article><article class="panel stress-panel"><p class="eyebrow">СТРЕСС-ТЕСТ</p><h2>Если проверка работает хуже?</h2><p class="footnote">Решения зафиксированы. Меняется только фактическая эффективность проверки в сценарии.</p><div id="stress-chart"></div><p class="footnote" id="stress-verdict"></p></article></div></div>
+      </section>
+      <section id="history" class="view" hidden>
+        <div class="page-heading"><div><p class="eyebrow">СОХРАНЕНО В SQL</p><h1>История решений</h1><p class="subtitle">Последние 30 ручных проверок. История сохраняется после перезапуска.</p></div><button class="secondary" id="refresh-history">Обновить ↻</button></div><article class="panel"><div id="history-content"></div></article>
+      </section>
+      <footer><span>equa.ai / тестовый MVP</span><span>Тестовый набор · 100 000 операций</span></footer>
+    </div>
+  </main>
+</body>
+</html>

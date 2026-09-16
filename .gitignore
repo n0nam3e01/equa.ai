@@ -1,0 +1,13 @@
+# Локальные секреты, база и окружение не должны попадать в GitHub.
+.venv/
+.env
+data/
+__pycache__/
+.pytest_cache/
+tmp/
+*.pyc
+# Библиотеки установлены через package-lock; исходники скачанных инструментов локальные.
+node_modules/
+tools/vendor/
+output/playwright/
+.playwright-cli/
