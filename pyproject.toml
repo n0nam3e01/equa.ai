@@ -1,3 +1,0 @@
-# Vercel запускает существующий API; run.py остаётся для локального запуска.
-[tool.vercel]
-entrypoint = "backend.main:app"
