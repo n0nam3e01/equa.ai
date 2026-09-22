@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#173f35">
+  <meta name="description" content="RallyGuard — подготовка к матчам, концентрация и наблюдение за самочувствием теннисиста-любителя.">
+  <title>RallyGuard — твой следующий шаг на корте</title>
+  <link rel="icon" href="/static/court.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Перейти к содержимому</a>
+  <aside class="sidebar">
+    <a class="brand" href="#today"><img src="/static/court.svg" alt="" width="36" height="30">RallyGuard</a>
+    <nav aria-label="Основная навигация" id="desktop-nav"></nav>
+    <div class="side-note"><span class="eyebrow">ТВОЙ ТЕМП. ТВОЯ ИГРА.</span><p>Маленькие шаги<br>на большом корте.</p><span class="court-line"></span></div>
+    <button class="account" data-page="settings"><span class="avatar">АЛ</span><span><strong id="sidebar-name">Алекс</strong><small>Теннисист-любитель</small></span><span>↗</span></button>
+  </aside>
+  <div class="shell">
+    <header class="topbar"><a class="brand mobile-brand" href="#today"><img src="/static/court.svg" alt="" width="30">RallyGuard</a><span class="breadcrumb" id="breadcrumb">Мой день</span><div class="top-actions"><span class="demo-label"><i></i> Демо · вымышленные данные</span><button class="icon-button" data-page="settings" aria-label="Настройки">☷</button></div></header>
+    <div id="error" class="error-banner" role="alert" hidden></div>
+    <main id="main" tabindex="-1"><div class="loading"><span class="spinner"></span>Готовим твой корт…</div></main>
+    <footer class="footer"><span>RallyGuard · Overclock BioTech 2026</span><button class="text-button" data-page="about">О проекте и ограничениях ↗</button></footer>
+  </div>
+  <nav id="mobile-nav" class="mobile-nav" aria-label="Мобильная навигация"></nav>
+  <dialog id="modal" aria-labelledby="modal-title"><div id="modal-content"></div></dialog>
+  <div id="toast" role="status" class="toast" hidden></div>
+</body>
+</html>

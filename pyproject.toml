@@ -1,0 +1,3 @@
+# Vercel обнаруживает Python-приложение по этому модулю.
+[tool.vercel]
+entrypoint = "backend.main:app"

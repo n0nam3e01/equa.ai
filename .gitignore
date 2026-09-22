@@ -1,0 +1,12 @@
+.env
+.venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+data/
+tmp/
+output/
+.playwright-cli/
+tools/vendor/
+.vercel/
+*.pyc
