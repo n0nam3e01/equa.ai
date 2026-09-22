@@ -2,6 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "fastapi",
   "buildCommand": "",
-  "outputDirectory": null,
-  "functions": {"backend/main.py": {"maxDuration": 60}}
+  "outputDirectory": null
 }

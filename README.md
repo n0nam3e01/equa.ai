@@ -66,7 +66,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 ## Деплой
 
-Репозиторий рассчитан на Vercel FastAPI: корень проекта — `.`, Framework Preset — **FastAPI**, Output Directory оставьте пустым. `vercel.json` и `pyproject.toml` уже содержат точку входа `backend.main:app`. Для постоянной истории на Vercel используйте Supabase; SQLite там временный.
+Репозиторий рассчитан на Vercel FastAPI: корень проекта — `.`, Framework Preset — **FastAPI**, Output Directory оставьте пустым. `vercel.json` и `pyproject.toml` уже содержат точку входа `backend.main:app`; ручной блок `functions` не нужен, потому что Vercel сам обнаруживает FastAPI. Для постоянной истории на Vercel используйте Supabase; SQLite там временный.
 
 Перед отправкой проекта на AI Startify команда должна добавить публичную ссылку на GitHub, live-ссылку или видео до 3 минут, питч до 12 слайдов и опубликовать карточку после AI Incubator с промокодом `OVRC`.
 
