@@ -68,7 +68,7 @@ def index(): return FileResponse(ROOT/'frontend/index.html')
 @app.get('/api/health')
 def health():
     return {'status': 'ready', 'database': app.state.storage.mode, 'ephemeral': app.state.storage.ephemeral,
-            'ai_available': bool(os.getenv('GROQ_API_KEY')), 'demo_only': False,
+            'ai_available': bool(os.getenv('GEMINI_API_KEY')), 'demo_only': False,
             'accounts': 'supabase', 'personal_database': 'supabase'}
 
 
