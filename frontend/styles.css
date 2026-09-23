@@ -23,3 +23,6 @@ dialog{border:1px solid var(--line);border-radius:24px;padding:0;max-width:650px
 @media(max-width:1100px){.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.page-head{align-items:flex-start;flex-direction:column}.overview-hero{padding:24px;align-items:flex-start}.overview-score{min-width:105px;width:105px}.overview-score strong{font-size:36px}.overview-score span{font-size:8px}.insight-grid{grid-template-columns:1fr}.section-title h2{font-size:21px}.metric{padding:15px}.metric strong{font-size:19px}}
 @media(max-width:470px){.overview-hero{flex-direction:column}.overview-score{position:absolute;right:23px;top:22px;width:78px;min-width:78px}.overview-score strong{font-size:28px}.overview-score span{display:none}.overview-hero .eyebrow{padding-right:84px}.overview-hero h2{padding-right:72px}.metric-grid{gap:8px}.metric{flex-direction:column;align-items:flex-start;gap:4px}.form-grid{grid-template-columns:1fr}.section-title{align-items:flex-start;flex-direction:column}}
+
+/* Формы входа сохраняют привычные размеры полей и читаемые состояния ошибок. */
+.auth-panel .field{margin:18px 0}.auth-panel h2{margin-top:14px}.auth-panel .text-button{margin-top:18px}.auth-panel form>.btn{width:100%}.auth-panel #auth-message{color:var(--green,#173f35)}

@@ -17,6 +17,7 @@ from backend.analytics import assess, demo_records
 from backend.content import LESSONS, public_lessons
 from backend.schemas import Checkin, Training, Decision, Message, Answer, ImportData, Scenario
 from backend.storage import Storage
+from backend.accounts import router as accounts_router
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT/'.env')
@@ -32,6 +33,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title='RallyGuard API', version='1.0.0', lifespan=lifespan)
+app.include_router(accounts_router)
 app.mount('/static', StaticFiles(directory=ROOT/'frontend'), name='static')
 
 
@@ -64,7 +66,8 @@ def index(): return FileResponse(ROOT/'frontend/index.html')
 @app.get('/api/health')
 def health():
     return {'status': 'ready', 'database': app.state.storage.mode, 'ephemeral': app.state.storage.ephemeral,
-            'ai_available': bool(os.getenv('GROQ_API_KEY')), 'demo_only': True}
+            'ai_available': bool(os.getenv('GROQ_API_KEY')), 'demo_only': False,
+            'accounts': 'supabase', 'personal_database': 'supabase'}
 
 
 def workspace(request: Request):
