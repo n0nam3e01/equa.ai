@@ -206,7 +206,10 @@ def get_profile(auth=Depends(identity)):
     result = {'role': item['role'], 'name': item['display_name'], 'email': auth['user']['email']}
     if item['role'] == 'coach':
         result['coach_code'] = item['coach_code']
-        result['telegram_available'] = bool(os.getenv('TELEGRAM_BOT_TOKEN'))
+        # Кнопка привязки появляется только когда сервер может и принять webhook,
+        # и прочитать разрешённый тренеру отчёт из Supabase.
+        result['telegram_available'] = all(os.getenv(name) for name in (
+            'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'SUPABASE_SERVICE_ROLE_KEY'))
         result['telegram_bot_username'] = os.getenv('TELEGRAM_BOT_USERNAME', '')
     else:
         links = remote('GET', '/rest/v1/rg_coach_links', auth['token'], params={
