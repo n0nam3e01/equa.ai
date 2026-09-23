@@ -23,6 +23,9 @@ def test_isolated_sessions_and_full_flow(client):
     assert original['assessment']['level']=='steady'
     checks,_=demo_records('attention')
     assert client.post('/api/checkins/alex',json=checks[-1]).json()['assessment']['level']=='attention'
+    attention=client.get('/api/state/alex').json()['assessment']
+    assert attention['insights'][0]['area']=='Дискомфорт'
+    assert any(item['area']=='Сон' for item in attention['insights'])
     assert client.post('/api/decisions/alex',json={'action':'discuss','note':'Обсудим самочувствие перед занятием.'}).status_code==200
     assert len(client.get('/api/state/alex').json()['decisions'])==1
     # Другой посетитель не видит ни изменения чек-ина, ни комментарий тренера.
@@ -69,6 +72,7 @@ def test_analytics_limits_and_missing_history():
     result=assess([checks[-1]],[])
     assert 'Мало истории' in result['quality']
     assert result['level']=='attention'
+    assert result['insights'][0]['priority']==0
 
 
 def test_assets(client):

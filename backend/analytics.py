@@ -22,7 +22,7 @@ def assess(checkins, sessions):
     if not latest:
         return {**base, 'score': None, 'level': 'unknown', 'label': 'Нужен чек-ин',
                 'factors': ['Добавь первый отчёт о состоянии.'], 'quality': 'Нет данных',
-                'plan': plan('unknown')}
+                'plan': plan('unknown'), 'insights': [], 'summary': 'Заполни опрос, чтобы увидеть разбор.'}
     # Относительный учебный индекс: диапазон 0–100, а не вероятность или допуск к игре.
     score = round(max(0, min(100, 100 - (5-latest['energy'])*7 - (latest['fatigue']-1)*6
                           - (latest['stress']-1)*5 - latest['discomfort']*3)))
@@ -48,10 +48,63 @@ def assess(checkins, sessions):
         level = 'unknown'
         factors.insert(0, 'Отчёт устарел: обнови состояние перед новым занятием.')
     quality = 'Личная история накоплена' if len(history) >= 7 else 'Мало истории: личная норма ещё не определена'
+    insights = build_insights(latest, history, load, prev_load, age)
     return {**base, 'score': score if age <= 1 else None, 'level': level,
             'label': {'steady': 'Обычный ритм', 'caution': 'Стоит пересмотреть план', 'attention': 'Нужно внимание', 'unknown': 'Обнови чек-ин'}[level],
             'quality': quality, 'factors': factors or ['В последнем отчёте нет выраженных сигналов по правилам прототипа. Это не подтверждение безопасности нагрузки.'],
-            'plan': plan(level)}
+            'plan': plan(level), 'insights': insights,
+            'summary': insights[0]['action'] if insights else 'Показатели близки к твоему обычному уровню. Продолжай отмечать изменения.'}
+
+
+def build_insights(latest, history, load, prev_load, age):
+    """Прозрачные подсказки по каждому сигналу; это не диагноз и не допуск к игре."""
+    items = []
+    def add(area, value, observation, action, priority):
+        items.append({'area': area, 'value': value, 'observation': observation,
+                      'action': action, 'priority': priority})
+    if age > 1:
+        add('Актуальность', f'{age} дн.', 'Последний опрос уже не отражает сегодняшний день.',
+            'Обнови ответы перед тем, как делать выводы по динамике.', 0)
+    if latest['limitation'] or latest['discomfort'] >= 5:
+        add('Дискомфорт', f"{latest['discomfort']}/10", 'Дискомфорт заметный или мешает движению.',
+            'Не ориентируйся на автоматический план нагрузки. Обсуди симптом с квалифицированным специалистом.', 0)
+    elif latest['discomfort'] > 0:
+        add('Дискомфорт', f"{latest['discomfort']}/10", 'Ты отметил дискомфорт.',
+            'Заметь, когда он появляется и меняется ли при движении; при сохранении или усилении обратись к специалисту.', 1)
+    sleep_base = median(c['sleep'] for c in history) if len(history) >= 5 else None
+    if sleep_base is not None and latest['sleep'] < sleep_base - 1:
+        add('Сон', f"{latest['sleep']:g} ч", f'Это более чем на час меньше твоей личной медианы ({sleep_base:g} ч).',
+            'Отметь, повторится ли короткий сон, и обсуди объём ближайшего занятия с тренером.', 1)
+    elif latest['sleep'] < 7:
+        add('Сон', f"{latest['sleep']:g} ч", 'Сегодня ты сообщил о коротком сне.',
+            'Понаблюдай за сном несколько дней и учитывай самочувствие при планировании занятия.', 2)
+    if latest['fatigue'] >= 4:
+        add('Усталость', f"{latest['fatigue']}/5", 'Ты оценил усталость как высокую.',
+            'Проверь, как меняется состояние после отдыха; при планировании занятия обсуди нагрузку с тренером.', 1)
+    if latest['stress'] >= 4:
+        add('Стресс', f"{latest['stress']}/5", 'Ты отметил высокий уровень стресса.',
+            'Перед игрой выбери один простой ориентир внимания и оцени состояние после занятия.', 2)
+    if latest['energy'] <= 2:
+        add('Энергия', f"{latest['energy']}/5", 'Энергии сегодня меньше обычного желаемого уровня.',
+            'Сравни это с последними днями и не принимай решение о нагрузке только по одному числу.', 2)
+    if prev_load and load > prev_load * 1.4:
+        add('Нагрузка', str(load), 'Записанная нагрузка за неделю выросла более чем на 40% к прошлой неделе.',
+            'Проверь записи занятий и обсуди изменение объёма с тренером.', 1)
+    if len(history) >= 5:
+        for field, title, delta, direction, suffix in [
+            ('resting_hr', 'Пульс покоя', 10, 1, 'уд/мин'), ('hrv', 'HRV', 15, -1, 'мс')]:
+            values = [c[field] for c in history if c.get(field) is not None]
+            current = latest.get(field)
+            if current is not None and len(values) >= 5:
+                baseline = median(values)
+                changed = current - baseline
+                if (direction == 1 and changed > delta) or (direction == -1 and changed < -delta):
+                    add(title, f'{current:g} {suffix}', f'Отличается от твоей личной медианы ({baseline:g} {suffix}).',
+                        'Проверь измерение и смотри на повторяющуюся тенденцию, а не на одно значение.', 2)
+    if not items:
+        add('Общий обзор', 'Без сигнала', 'По демонстрационным правилам выраженных изменений нет.',
+            'Продолжай короткие опросы: личная динамика становится понятнее со временем.', 3)
+    return sorted(items, key=lambda item: item['priority'])
 
 
 def plan(level):
