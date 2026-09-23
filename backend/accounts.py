@@ -275,7 +275,7 @@ def _gemini_text(client: httpx.Client, key: str, model: str, prompt: str) -> str
     external service cannot keep the player waiting indefinitely. Never log the key,
     the prompt, or Google's response body: they can contain private player notes.
     """
-    deadline = time.monotonic() + 46
+    deadline = time.monotonic() + 56
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
     payload = {'contents': [{'parts': [{'text': prompt}]}],
                'generationConfig': {'maxOutputTokens': 320,
@@ -287,9 +287,9 @@ def _gemini_text(client: httpx.Client, key: str, model: str, prompt: str) -> str
         if remaining < 10:
             break
         try:
-            # A real two-sentence response can take 25+ seconds on Flash-Lite.
+            # Free-tier responses can take much longer than a small prompt suggests.
             response = client.post(url, headers={'x-goog-api-key': key}, json=payload,
-                                   timeout=httpx.Timeout(min(38, remaining - 3), connect=5))
+                                   timeout=httpx.Timeout(min(52, remaining - 3), connect=5))
         except httpx.TimeoutException as exc:
             # A full slow request has already consumed most of the useful budget.
             logger.warning('Gemini advice request timed out: %s', type(exc).__name__)

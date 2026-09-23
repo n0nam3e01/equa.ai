@@ -54,6 +54,9 @@ def signed_code(coach_id, secret):
 def verify_code(code, secret):
     try:
         raw = base64.urlsafe_b64decode(code+'='*((-len(code)) % 4))
+        # Отвергаем другие текстовые представления тех же байтов (лишние биты base64).
+        if base64.urlsafe_b64encode(raw).rstrip(b'=').decode() != code:
+            return None
         if len(raw) != 32 or not hmac.compare_digest(raw[20:], hmac.new(secret.encode(), raw[:20], hashlib.sha256).digest()[:12]):
             return None
         if struct.unpack('>I', raw[16:20])[0] < time.time():
