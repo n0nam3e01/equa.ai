@@ -17,7 +17,7 @@ const nav = [['today','Обзор','home'],['checkin','Опрос','path'],['pro
 let mode = 'personal', authView = 'login', signupRole = 'player', refreshTask = null, firstLogin = false;
 let page = 'today', current = null, health = {}, selected = sessionStorage.getItem('rg_player') || 'alex';
 let account = null;
-let routeVersion = 0, toastTimer;
+let routeVersion = 0, toastTimer, navMotionFromKeyboard = false;
 const fmtDate = value => new Date(value+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 
@@ -65,10 +65,39 @@ async function safely(action) {
 }
 function status(a){return `<span class="status ${esc(a.level)}">${esc(a.label)}</span>`;}
 function header(title,subtitle,action=''){return `<div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div>${action}</div>`;}
+// Одна плашка остаётся в DOM между переходами и плавно переезжает к активной ссылке.
+function moveNavIndicator(animate=true){
+  const desktop=$('#desktop-nav'), indicator=$('.nav-indicator',desktop), active=$('.nav-link.active',desktop);
+  if(!indicator)return;
+  if(!animate)indicator.classList.remove('ready');
+  indicator.style.opacity=active?'1':'0';
+  if(active){
+    indicator.style.height=`${active.offsetHeight}px`;
+    indicator.style.transform=`translate3d(0, ${active.offsetTop}px, 0)`;
+  }
+  if(!indicator.classList.contains('ready'))requestAnimationFrame(()=>indicator.classList.add('ready'));
+}
 function navRender(){
   const items=mode==='coach'?[['coach','Моя группа','team'],['settings','Профиль','settings'],['about','О проекте','ball']]:mode==='demo'?[...nav,['settings','Профиль','settings']]:[...nav.slice(0,4),['settings','Профиль','settings']];
-  $('#desktop-nav').innerHTML=items.map(([id,name,i])=>`<a class="nav-link ${page===id?'active':''}" href="#${id}" ${page===id?'aria-current="page"':''}>${icon(i)}${name}</a>`).join('');
-  $('#mobile-nav').innerHTML=items.slice(0,4).map(([id,name,i])=>`<a class="nav-link ${page===id?'active':''}" href="#${id}" ${page===id?'aria-current="page"':''}>${icon(i)}${name}</a>`).join('');
+  const desktop=$('#desktop-nav'), mobile=$('#mobile-nav');
+  const desktopKey=items.map(([id])=>id).join(','), mobileItems=items.slice(0,4), mobileKey=mobileItems.map(([id])=>id).join(',');
+  // Пересоздаём ссылки только при смене роли, иначе индикатор потерял бы прежнюю позицию.
+  if(desktop.dataset.items!==desktopKey){
+    desktop.innerHTML=`<span class="nav-indicator" aria-hidden="true"></span>`+items.map(([id,name,i])=>`<a class="nav-link" href="#${id}">${icon(i)}${name}</a>`).join('');
+    desktop.dataset.items=desktopKey;
+  }
+  if(mobile.dataset.items!==mobileKey){
+    mobile.innerHTML=mobileItems.map(([id,name,i])=>`<a class="nav-link" href="#${id}">${icon(i)}${name}</a>`).join('');
+    mobile.dataset.items=mobileKey;
+  }
+  for(const link of document.querySelectorAll('#desktop-nav .nav-link, #mobile-nav .nav-link')){
+    const active=link.hash.slice(1)===page;
+    link.classList.toggle('active',active);
+    if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');
+  }
+  // Клавиатурный переход срабатывает сразу: визуальный ориентир меняется без движения.
+  moveNavIndicator(!navMotionFromKeyboard);
+  navMotionFromKeyboard=false;
   $('#breadcrumb').textContent=nav.find(n=>n[0]===page)?.[1] || 'RallyGuard';
 }
 
@@ -110,7 +139,8 @@ function adviceCacheKey(){
   const source=JSON.stringify([account.email,current.context,current.checkins.at(-1),current.checkins.length,current.trainings.at(-1),current.trainings.length]);
   let hash=2166136261;
   for(let i=0;i<source.length;i++)hash=Math.imul(hash^source.charCodeAt(i),16777619);
-  return 'rg_advice_'+(hash>>>0).toString(16);
+  // Версия ключа меняется вместе с правилами советов, чтобы не показывать старый шаблон из вкладки.
+  return 'rg_advice_v2_'+(hash>>>0).toString(16);
 }
 async function loadAdvice(force=false){
   const target=$('#daily-advice');
@@ -369,6 +399,10 @@ document.addEventListener('click',e=>{
   }
 });
 window.addEventListener('hashchange',()=>safely(render));
+document.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){navMotionFromKeyboard=true;document.documentElement.classList.add('keyboard-input');}});
+document.addEventListener('pointerdown',()=>{navMotionFromKeyboard=false;document.documentElement.classList.remove('keyboard-input');});
+window.addEventListener('resize',()=>moveNavIndicator(false));
+document.fonts.ready.then(()=>moveNavIndicator(false));
 safely(async()=>{
   health=await api('/health');
   // После подтверждения почты убираем токены из адреса и переносим в HttpOnly cookies.

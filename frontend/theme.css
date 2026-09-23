@@ -34,6 +34,8 @@
   --button-hover: #a7d0b9;
   --button-fg: #0b1710;
   --status-fg: #b4dfbd;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 :root[data-theme='light'] {
@@ -74,6 +76,24 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .brand, .account, .icon-button { color: var(--ink); }
 .nav-link:hover { background: var(--hover); }
 .nav-link.active { background: var(--pale); color: var(--ink); }
+/* Одна зелёная плашка следует за активной страницей в левом меню. */
+#desktop-nav { position: relative; isolation: isolate; }
+#desktop-nav .nav-link { position: relative; z-index: 1; transition: color 160ms ease, transform 160ms var(--ease-out); }
+#desktop-nav .nav-link.active { background: transparent; }
+#desktop-nav .nav-indicator {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 48px;
+  border: 1px solid color-mix(in srgb, var(--green) 28%, var(--line));
+  border-radius: 12px;
+  background: var(--pale);
+  box-shadow: 0 4px 14px #00000012;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+}
+#desktop-nav .nav-indicator::before { content: ''; position: absolute; inset: 11px auto 11px 0; width: 3px; border-radius: 3px; background: var(--green); }
+#desktop-nav .nav-indicator.ready { transition: transform 250ms var(--ease-in-out), opacity 160ms ease; }
 .side-note p { color: var(--green); }
 .court-line, .demo-label i { background: var(--green); }
 .topbar { border-bottom-color: var(--line); }
@@ -128,6 +148,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .btn.outline:hover { background: var(--hover); }
 .btn.danger { background: #983f3a; color: #ffffff; }
 .btn.danger:hover { background: #82332f; }
+/* Нажатие коротко сжимает кнопку; обратная связь работает и на сенсорном экране. */
+button, .btn { transition: transform 160ms var(--ease-out), background-color 160ms ease, border-color 160ms ease, opacity 160ms ease; }
+.text-button { transform-origin: left center; }
+@media (hover: none), (pointer: coarse) { .btn:hover { transform: none; } }
+button:not(:disabled):active, a.btn:active { transform: scale(.97); }
+#desktop-nav .nav-link:active { transform: scale(.98); }
+.keyboard-input button:not(:disabled):active, .keyboard-input a.btn:active, .keyboard-input #desktop-nav .nav-link:active { transform: none; }
 
 .field input, .field select, .field textarea, .inline-controls select, .chat-form input {
   background: var(--control);
@@ -272,6 +299,9 @@ dialog::backdrop { background: #060b09b8; }
 }
 @media (prefers-reduced-motion: reduce) {
   body, .ring { transition: none; }
+  #desktop-nav .nav-indicator.ready { transition: opacity 100ms ease !important; }
+  button, .btn, #desktop-nav .nav-link { transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease !important; }
+  button:not(:disabled):active, a.btn:active, #desktop-nav .nav-link:active { transform: none !important; }
 }
 
 /* Таблицы не должны задавать ширину всей сетке страницы. */

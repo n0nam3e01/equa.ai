@@ -162,9 +162,22 @@ def test_advice_sends_compact_history_without_identity(personal, monkeypatch):
         compact = json.loads(prompt.split('JSON: ', 1)[1])
         assert compact['totals']['checkins'] == 1
         assert compact['recent_checkins'][0]['sleep'] == 7
-        return 'Состояние стабильное. Продолжай отмечать сон и нагрузку.'
+        return 'Состояние стабильное. На следующем занятии сравни точность двух коротких серий ударов.'
 
     monkeypatch.setattr(accounts, '_gemini_text', fake_gemini)
     result = personal.get('/api/me/advice')
     assert result.status_code == 200
     assert result.json()['source'] == 'gemini'
+
+
+def test_generic_gemini_advice_falls_back_to_concrete_step(personal, monkeypatch):
+    login(personal, 'alice')
+    personal.post('/api/me/checkins', json={
+        'date': date.today().isoformat(), 'sleep': 8, 'energy': 4,
+        'fatigue': 2, 'stress': 2, 'discomfort': 0})
+    monkeypatch.setenv('GEMINI_API_KEY', 'test-key')
+    monkeypatch.setattr(accounts, '_gemini_text', lambda *_: 'Всё хорошо. Продолжай отмечать сон и нагрузку.')
+
+    result = personal.get('/api/me/advice').json()
+    assert result['source'] == 'algorithm'
+    assert 'точность двух коротких серий' in result['text']

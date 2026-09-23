@@ -67,6 +67,10 @@ def test_analytics_limits_and_missing_history():
         result=assess(checks,sessions)
         assert result['level']==level
         assert 0<=result['score']<=100
+        if scenario=='steady':
+            assert 'точность двух коротких серий' in result['summary']
+        else:
+            assert 'цель чуть сложнее' not in result['summary']
     checks,sessions=demo_records('attention')
     assert assess(checks[:-2],sessions)['level']=='unknown'
     result=assess([checks[-1]],[])
