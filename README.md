@@ -88,6 +88,10 @@ python -m venv .venv
 
 ## Деплой
 
+Проект Vercel: [`rallyguard`](https://vercel.com/n0nam3e01s-projects/rallyguard).
+Project ID: `prj_bXmVY8KtUvGQTQUcmu0cDZD8uAqs`. Репозиторий: `n0nam3e01/equa.ai`.
+Изменения в `main` запускают автоматическую публикацию.
+
 Репозиторий рассчитан на Vercel FastAPI: корень проекта — `.`, Output Directory оставьте пустым. `api/index.py` экспортирует FastAPI-приложение, а `vercel.json` направляет запросы к нему. Для постоянной истории на Vercel используйте Supabase; SQLite там временный.
 
 Перед отправкой проекта на AI Startify команда должна добавить публичную ссылку на GitHub, live-ссылку или видео до 3 минут, питч до 12 слайдов и опубликовать карточку после AI Incubator с промокодом `OVRC`.
