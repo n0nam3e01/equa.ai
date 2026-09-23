@@ -118,7 +118,9 @@ async function loadAdvice(force=false){
   const cacheKey=adviceCacheKey();
   if(!force){try{const cached=JSON.parse(sessionStorage.getItem(cacheKey)||'null');if(cached&&Date.now()-cached.time<30*60*1000){target.textContent=cached.text;$('#advice-source').textContent=cached.source;return;}}catch{/* Кэш необязателен. */}}
   const revision=routeVersion;
-  target.textContent='Готовим совет по твоей истории…';
+  // Gemini иногда отвечает десятки секунд: базовый совет остаётся видимым.
+  target.textContent=current.assessment.summary;
+  $('#advice-source').textContent='Уточняем совет через Gemini…';
   try{
     const result=await api('/me/advice');
     if(revision!==routeVersion||!$('#daily-advice'))return;
@@ -126,7 +128,10 @@ async function loadAdvice(force=false){
     $('#advice-source').textContent=result.source==='gemini'?'Сводка Gemini по твоей истории · без диагноза':'По рассчитанным сигналам · Gemini пока недоступен';
     try{sessionStorage.setItem(cacheKey,JSON.stringify({text:result.text,source:$('#advice-source').textContent,time:Date.now()}));}catch{/* Совет остаётся видимым без кэша. */}
   }catch{
-    if(revision===routeVersion&&$('#daily-advice'))$('#daily-advice').textContent=current.assessment.summary;
+    if(revision===routeVersion&&$('#daily-advice')){
+      $('#daily-advice').textContent=current.assessment.summary;
+      $('#advice-source').textContent='По рассчитанным сигналам · Gemini пока недоступен';
+    }
   }
 }
 function overview(){
