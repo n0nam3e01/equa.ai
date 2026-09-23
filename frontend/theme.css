@@ -273,3 +273,24 @@ dialog::backdrop { background: #060b09b8; }
 @media (prefers-reduced-motion: reduce) {
   body, .ring { transition: none; }
 }
+
+/* Таблицы не должны задавать ширину всей сетке страницы. */
+.page-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+.page-grid > *, .panel, .modal-inner { min-width: 0; }
+.table-wrap { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
+
+@media (max-width: 900px) {
+  .page-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* На телефоне история читается карточками без горизонтальной прокрутки. */
+@media (max-width: 700px) {
+  .history-table { overflow: visible; }
+  .history-table table, .history-table tbody { display: block; width: 100%; white-space: normal; }
+  .history-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .history-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--pale); }
+  .history-table tr + tr { margin-top: 10px; }
+  .history-table td { display: block; min-width: 0; padding: 0; border: 0; white-space: normal; overflow-wrap: anywhere; font-size: 13px; }
+  .history-table td::before { content: attr(data-label); display: block; margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .03em; }
+  .history-table td .text-button { text-align: left; }
+}
