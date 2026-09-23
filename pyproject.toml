@@ -1,3 +1,12 @@
-# Vercel обнаруживает Python-приложение по этому модулю.
-[tool.vercel]
-entrypoint = "backend.main:app"
+[project]
+name = "rallyguard-mvp"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi==0.141.1",
+  "python-dotenv==1.2.3",
+  "httpx==0.28.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
