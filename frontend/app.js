@@ -21,6 +21,17 @@ let routeVersion = 0, toastTimer;
 const fmtDate = value => new Date(value+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 
+// Тема — личное предпочтение устройства. Кнопка есть даже до входа в аккаунт.
+function syncThemeButton(){
+  const light=document.documentElement.dataset.theme==='light';
+  const button=$('.theme-toggle');
+  button.innerHTML=`${icon(light?'moon':'sun')}<span>${light?'Тёмная тема':'Светлая тема'}</span>`;
+  button.setAttribute('aria-label',light?'Включить тёмную тему':'Включить светлую тему');
+  button.setAttribute('aria-pressed',String(light));
+  $('meta[name="theme-color"]').content=light?'#f6f8f5':'#0d1110';
+}
+syncThemeButton();
+
 async function api(path, data, method, retried = false) {
   // Личный режим обращается только к /me: идентификатор владельца задаёт сервер.
   if(mode === 'personal') {
@@ -72,7 +83,7 @@ function insightCards(items) {
   return items.map(item=>`<article class="insight-card"><div class="insight-top"><span>${esc(item.area)}</span><strong>${esc(item.value)}</strong></div><p>${esc(item.observation)}</p><div class="insight-action"><span>Что сделать</span><p>${esc(item.action)}</p></div></article>`).join('');
 }
 // Кольцо показывает долю шкалы. Источник всех значений — опрос, а не браслет.
-function ring(label,value,display,color='violet',large=false){
+function ring(label,value,display,color='sage',large=false){
   const normalized=Math.max(0,Math.min(100,Math.round(value||0)));
   return `<div class="ring-wrap ${large?'ring-large':''}"><div class="ring ${color}" role="img" aria-label="${esc(label)}: ${esc(display)}" data-value="${normalized}"><div class="ring-core"><strong>${esc(display)}</strong><span>${esc(label)}</span></div></div></div>`;
 }
@@ -80,7 +91,7 @@ function overview(){
   const a=current.assessment, last=current.checkins.at(-1);
   return header(`Привет, ${current.player.name}`, 'Твой обзор за сегодня', `<button class="btn lime" data-page="checkin">${last?.date===today()?'Обновить опрос':'Заполнить опрос'} →</button>`)+`
     ${current.context_tip?`<div class="notice">${esc(current.context_tip)}</div>`:''}
-    <section class="panel overview-hero"><div><span class="eyebrow">РАЗБОР СОСТОЯНИЯ · ПО ТВОИМ ОТВЕТАМ</span><h2>${esc(a.label)}</h2><p>${esc(a.summary)}</p><button class="btn secondary" data-page="checkin">Ответить на вопросы →</button></div>${ring('индекс состояния',a.score,a.score??'—','violet',true)}</section>
+    <section class="panel overview-hero"><div><span class="eyebrow">РАЗБОР СОСТОЯНИЯ · ПО ТВОИМ ОТВЕТАМ</span><h2>${esc(a.label)}</h2><p>${esc(a.summary)}</p><button class="btn secondary" data-page="checkin">Ответить на вопросы →</button></div>${ring('индекс состояния',a.score,a.score??'—','sage',true)}</section>
     <div class="metric-grid">${[
       ['Сон',last?Math.round(last.sleep/8*100):0,last?`${last.sleep} ч`:'—','cyan'],
       ['Энергия',last?last.energy*20:0,last?`${last.energy}/5`:'—','lime'],
@@ -245,6 +256,12 @@ document.addEventListener('click',e=>{
   if(button.dataset.role){signupRole=button.dataset.role;return onboarding();}
   if(button.dataset.scenario)return safely(async()=>{button.disabled=true;try{current=await api('/scenario/'+selected,{name:button.dataset.scenario});await render();toast('Демо-сценарий применён');}finally{button.disabled=false;}});
   const action=button.dataset.action;
+  if(action==='theme-toggle'){
+    const next=document.documentElement.dataset.theme==='dark'?'light':'dark';
+    document.documentElement.dataset.theme=next;
+    try{localStorage.setItem('rg_theme',next);}catch{/* В приватном режиме тема действует до закрытия вкладки. */}
+    syncThemeButton();return;
+  }
   if(action==='start')return safely(async()=>{button.disabled=true;try{mode='demo';await api('/demo',{});current=await api('/state/'+selected);await render();}finally{button.disabled=false;}});
   if(action==='auth-toggle'){authView=authView==='login'?'signup':'login';return onboarding();}
   if(action==='auth-recover'){authView='recover';return onboarding();}
