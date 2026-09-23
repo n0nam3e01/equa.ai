@@ -18,6 +18,7 @@ from backend.content import LESSONS, public_lessons
 from backend.schemas import Checkin, Training, Decision, Message, Answer, ImportData, Scenario
 from backend.storage import Storage
 from backend.accounts import router as accounts_router
+from backend.telegram_bot import router as telegram_router
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT/'.env')
@@ -34,6 +35,7 @@ async def lifespan(app):
 
 app = FastAPI(title='RallyGuard API', version='1.0.0', lifespan=lifespan)
 app.include_router(accounts_router)
+app.include_router(telegram_router)
 app.mount('/static', StaticFiles(directory=ROOT/'frontend'), name='static')
 
 

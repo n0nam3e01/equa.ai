@@ -4,7 +4,9 @@
 Пароли не сохраняются нашим сервером, токены доступны только HttpOnly cookies.
 """
 import os
+from datetime import date
 from uuid import uuid4
+from typing import Literal
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import Field
@@ -21,6 +23,26 @@ class Credentials(Strict):
     email: str = Field(min_length=3, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
     password: str = Field(min_length=8, max_length=128)
     name: str = Field(default='Игрок', min_length=1, max_length=60)
+    role: Literal['player', 'coach'] = 'player'
+
+
+class EmailAddress(Strict):
+    email: str = Field(min_length=3, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+
+
+class NewPassword(Strict):
+    password: str = Field(min_length=8, max_length=128)
+
+
+class CoachCode(Strict):
+    code: str = Field(min_length=32, max_length=32, pattern=r'^[a-fA-F0-9]{32}$')
+
+
+class PlayerContext(Strict):
+    level: Literal['beginner', 'intermediate', 'advanced'] = 'beginner'
+    goal: str = Field(default='', max_length=120)
+    sessions_per_week: int = Field(default=2, ge=0, le=14)
+    next_match: date | None = None
 
 
 class Session(Strict):
@@ -37,7 +59,8 @@ def remote(method, path, token=None, **kwargs):
     with httpx.Client(timeout=20) as client:
         result = client.request(method, url + path, headers=headers, **kwargs)
     if result.status_code >= 400:
-        code = result.json().get('error_code', '') if 'json' in result.headers.get('content-type', '') else ''
+        error = result.json() if 'json' in result.headers.get('content-type', '') else {}
+        code = error.get('error_code', '')
         if result.status_code == 429:
             raise HTTPException(429, 'Слишком много попыток. Подожди немного и повтори.')
         if path.startswith('/auth/'):
@@ -46,6 +69,10 @@ def remote(method, path, token=None, **kwargs):
                        'user_already_exists': 'Аккаунт уже существует. Используй вход.',
                        'weak_password': 'Выбери более сложный пароль.'}.get(code, 'Не удалось войти. Проверь email и пароль или войди заново.')
             raise HTTPException(401 if result.status_code < 500 else 503, message)
+        if path == '/rest/v1/rpc/rg_join_coach' and error.get('message') == 'Coach code not found':
+            raise HTTPException(404, 'Код тренера не найден.')
+        if path == '/rest/v1/rpc/rg_coach_report' and error.get('message') == 'Report access denied':
+            raise HTTPException(403, 'Игрок не разрешил доступ к отчёту.')
         raise HTTPException(503, 'Не удалось сохранить или загрузить историю. Повтори попытку.')
     return result.json() if result.content else None
 
@@ -71,7 +98,7 @@ def identity(request: Request):
 def signup(body: Credentials, request: Request, response: Response):
     result = remote('POST', '/auth/v1/signup', json={
         'email': body.email.strip().lower(), 'password': body.password,
-        'data': {'name': body.name.strip() or 'Игрок'}})
+        'data': {'name': body.name.strip() or 'Игрок', 'rg_role': body.role}})
     if result.get('access_token'):
         cookies(response, request, result)
     return {'confirmation_required': not bool(result.get('access_token'))}
@@ -83,6 +110,30 @@ def login(body: Credentials, request: Request, response: Response):
                     json={'email': body.email.strip().lower(), 'password': body.password})
     cookies(response, request, result)
     return {'signed_in': True}
+
+
+@router.post('/auth/recover')
+def recover(body: EmailAddress):
+    # Не показываем, существует ли адрес в базе. Почта должна быть настроена в Supabase.
+    if os.getenv('EMAIL_DELIVERY_ENABLED') != '1':
+        raise HTTPException(503, 'Восстановление пароля появится после подключения почтового сервиса.')
+    remote('POST', '/auth/v1/recover', params={'redirect_to': 'https://rallyguard.vercel.app/'},
+           json={'email': body.email.strip().lower()})
+    return {'sent': True}
+
+
+@router.post('/auth/resend')
+def resend(body: EmailAddress):
+    if os.getenv('EMAIL_DELIVERY_ENABLED') != '1':
+        raise HTTPException(503, 'Письма пока не подключены.')
+    remote('POST', '/auth/v1/resend', json={'type': 'signup', 'email': body.email.strip().lower()})
+    return {'sent': True}
+
+
+@router.post('/auth/password')
+def change_password(body: NewPassword, auth=Depends(identity)):
+    remote('PUT', '/auth/v1/user', auth['token'], json={'password': body.password})
+    return {'changed': True}
 
 
 @router.post('/auth/refresh')
@@ -132,14 +183,75 @@ def records(auth):
         offset += 500
 
 
+def profile(auth):
+    rows = remote('GET', '/rest/v1/rg_profiles', auth['token'], params={
+        'user_id': 'eq.' + auth['user']['id'], 'select': 'user_id,role,display_name,coach_code', 'limit': 1})
+    if not rows:
+        raise HTTPException(503, 'Профиль не найден. Проверь миграцию базы данных.')
+    return rows[0]
+
+
+def require_role(auth, role):
+    item = profile(auth)
+    if item['role'] != role:
+        raise HTTPException(403, 'Эта функция доступна только роли «'+('игрок' if role=='player' else 'тренер')+'».')
+    return item
+
+
+@router.get('/me/profile')
+def get_profile(auth=Depends(identity)):
+    item = profile(auth)
+    result = {'role': item['role'], 'name': item['display_name'], 'email': auth['user']['email']}
+    if item['role'] == 'coach':
+        result['coach_code'] = item['coach_code']
+        result['telegram_available'] = bool(os.getenv('TELEGRAM_BOT_TOKEN'))
+        result['telegram_bot_username'] = os.getenv('TELEGRAM_BOT_USERNAME', '')
+    else:
+        links = remote('GET', '/rest/v1/rg_coach_links', auth['token'], params={
+            'player_id': 'eq.'+auth['user']['id'], 'select':'coach_id,created_at', 'limit':1})
+        result['coach_connected'] = bool(links)
+    return result
+
+
+@router.get('/me/context')
+def get_context(auth=Depends(identity)):
+    require_role(auth, 'player')
+    rows = remote('GET', '/rest/v1/rg_player_context', auth['token'], params={
+        'user_id':'eq.'+auth['user']['id'],
+        'select':'level,goal,sessions_per_week,next_match','limit':1})
+    return rows[0] if rows else PlayerContext().model_dump(mode='json')
+
+
+@router.put('/me/context')
+def save_context(body: PlayerContext, auth=Depends(identity)):
+    require_role(auth, 'player')
+    # Прошедший матч не помогает планировать ближайшее занятие.
+    if body.next_match and body.next_match < date.today():
+        raise HTTPException(422, 'Дата ближайшего матча должна быть сегодня или позже.')
+    remote('POST', '/rest/v1/rg_player_context', auth['token'],
+           params={'on_conflict':'user_id'},
+           headers={'Prefer':'resolution=merge-duplicates,return=minimal'},
+           json={'user_id':auth['user']['id'], **body.model_dump(mode='json')})
+    return body.model_dump(mode='json')
+
+
 def personal_state(auth):
+    require_role(auth, 'player')
     rows = records(auth)
     checks = sorted([r['payload'] for r in rows if r['kind']=='checkin'], key=lambda x:x['date'])
     trainings = sorted([r['payload'] for r in rows if r['kind']=='training'], key=lambda x:x['date'])
     name = auth['user'].get('user_metadata', {}).get('name') or 'Игрок'
+    context = get_context(auth)
+    assessment = assess(checks, trainings)
+    tip = None
+    if context['next_match'] and checks:
+        days = (date.fromisoformat(context['next_match']) - date.today()).days
+        if 0 <= days <= 3 and assessment['level'] in ('caution', 'attention'):
+            tip = 'Скоро матч, а последние ответы показывают напряжение. Обсуди с тренером объём ближайшей тренировки и план восстановления.'
     return {'mode': 'personal', 'player': {'id':'me', 'name':name, 'initials':name[:2].upper()},
             'email':auth['user']['email'], 'checkins':checks, 'trainings':trainings,
-            'assessment':{**assess(checks, trainings), 'synthetic':False}, 'completed':[], 'decisions':[]}
+            'context':context, 'context_tip':tip,
+            'assessment':{**assessment, 'synthetic':False}, 'completed':[], 'decisions':[]}
 
 
 @router.get('/me/state')
@@ -148,6 +260,7 @@ def get_state(auth=Depends(identity)):
 
 
 def save(auth, kind, payload):
+    require_role(auth, 'player')
     # Один опрос на дату: повторная отправка обновляет запись атомарно в PostgreSQL.
     entry = payload['date'] if kind == 'checkin' else str(uuid4())
     remote('POST', '/rest/v1/rg_personal_records', auth['token'],
@@ -176,5 +289,51 @@ def export(response: Response, auth=Depends(identity)):
 
 @router.delete('/me/history')
 def clear_history(auth=Depends(identity)):
+    require_role(auth, 'player')
     remote('DELETE', '/rest/v1/rg_personal_records', auth['token'], params={'user_id':'eq.'+auth['user']['id']})
     return {'deleted':True}
+
+
+@router.post('/me/coach')
+def connect_coach(body: CoachCode, auth=Depends(identity)):
+    require_role(auth, 'player')
+    name = remote('POST', '/rest/v1/rpc/rg_join_coach', auth['token'],
+                  json={'input_code': body.code.lower()})
+    return {'connected': True, 'coach_name': name}
+
+
+@router.delete('/me/coach')
+def disconnect_coach(auth=Depends(identity)):
+    require_role(auth, 'player')
+    remote('DELETE', '/rest/v1/rg_coach_links', auth['token'], params={'player_id':'eq.'+auth['user']['id']})
+    return {'connected': False}
+
+
+@router.get('/coach/players')
+def coach_players(auth=Depends(identity)):
+    require_role(auth, 'coach')
+    links = remote('GET', '/rest/v1/rg_coach_links', auth['token'], params={
+        'coach_id': 'eq.'+auth['user']['id'], 'select':'player_id,created_at', 'order':'created_at.desc'})
+    return {'players': [coach_report_data(auth, row['player_id']) for row in links]}
+
+
+def coach_report_data(auth, player_id):
+    from uuid import UUID
+    try:
+        UUID(player_id)
+    except (ValueError, TypeError):
+        raise HTTPException(404, 'Игрок не найден.')
+    shared = remote('POST', '/rest/v1/rpc/rg_coach_report', auth['token'],
+                    json={'input_player': player_id})
+    if not shared:
+        raise HTTPException(404, 'Игрок не найден.')
+    return {'player_id': shared['player_id'], 'name': shared['name'],
+            'last_checkin': shared['checkins'][-1] if shared['checkins'] else None,
+            'assessment': assess(shared['checkins'], shared['trainings']),
+            'training_count': len(shared['trainings']), 'context': shared.get('context') or {}}
+
+
+@router.get('/coach/players/{player_id}')
+def coach_player_report(player_id: str, auth=Depends(identity)):
+    require_role(auth, 'coach')
+    return coach_report_data(auth, player_id)

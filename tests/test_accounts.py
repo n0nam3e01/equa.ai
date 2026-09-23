@@ -25,6 +25,12 @@ def personal(monkeypatch, tmp_path):
             if token not in ('alice','bob'):
                 raise HTTPException(401, 'Invalid token')
             return {'id':token,'email':token+'@example.test','user_metadata':{'name':token}}
+        if path == '/rest/v1/rg_profiles':
+            return [{'user_id':token,'role':'player','display_name':token,'coach_code':None}]
+        if path == '/rest/v1/rg_coach_links':
+            return []
+        if path == '/rest/v1/rg_player_context':
+            return []
         assert path == '/rest/v1/rg_personal_records'
         if method == 'POST':
             row=kwargs['json']

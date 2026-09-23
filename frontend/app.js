@@ -14,8 +14,9 @@ const paths = {
 };
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] || paths.ball}"/></svg>`;
 const nav = [['today','Обзор','home'],['checkin','Опрос','path'],['progress','Динамика','chart'],['coach','Тренер','team']];
-let mode = 'personal', authView = 'login', refreshTask = null;
+let mode = 'personal', authView = 'login', signupRole = 'player', refreshTask = null;
 let page = 'today', current = null, health = {}, selected = sessionStorage.getItem('rg_player') || 'alex';
+let account = null;
 let routeVersion = 0, toastTimer;
 const fmtDate = value => new Date(value+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -28,7 +29,7 @@ async function api(path, data, method, retried = false) {
   }
   const response = await fetch('/api'+path,{method:method || (data === undefined ? 'GET':'POST'),
     headers:data === undefined ? {} : {'Content-Type':'application/json'},body:data === undefined ? undefined : JSON.stringify(data)});
-  if(response.status === 401 && path.startsWith('/me/') && !retried) {
+  if(response.status === 401 && (path.startsWith('/me/') || path.startsWith('/coach/')) && !retried) {
     // Одна ротация refresh token для одновременно открытых запросов в этой вкладке.
     refreshTask ||= api('/auth/refresh', {}).finally(()=>{refreshTask=null;});
     await refreshTask;
@@ -53,8 +54,9 @@ async function safely(action) {
 function status(a){return `<span class="status ${esc(a.level)}">${esc(a.label)}</span>`;}
 function header(title,subtitle,action=''){return `<div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div>${action}</div>`;}
 function navRender(){
-  $('#desktop-nav').innerHTML=nav.filter(n=>mode==='demo'||n[0]!=='coach').map(([id,name,i])=>`<a class="nav-link ${page===id?'active':''}" href="#${id}" ${page===id?'aria-current="page"':''}>${icon(i)}${name}</a>`).join('');
-  $('#mobile-nav').innerHTML=[...nav.slice(0,3),['settings','Профиль','settings']].map(([id,name,i])=>`<a class="nav-link ${page===id?'active':''}" href="#${id}" ${page===id?'aria-current="page"':''}>${icon(i)}${name}</a>`).join('');
+  const items=mode==='coach'?[['coach','Моя группа','team'],['settings','Профиль','settings'],['about','О проекте','ball']]:mode==='demo'?[...nav,['settings','Профиль','settings']]:[...nav.slice(0,3),['settings','Профиль','settings']];
+  $('#desktop-nav').innerHTML=items.map(([id,name,i])=>`<a class="nav-link ${page===id?'active':''}" href="#${id}" ${page===id?'aria-current="page"':''}>${icon(i)}${name}</a>`).join('');
+  $('#mobile-nav').innerHTML=items.slice(0,4).map(([id,name,i])=>`<a class="nav-link ${page===id?'active':''}" href="#${id}" ${page===id?'aria-current="page"':''}>${icon(i)}${name}</a>`).join('');
   $('#breadcrumb').textContent=nav.find(n=>n[0]===page)?.[1] || 'RallyGuard';
 }
 
@@ -62,21 +64,29 @@ function weeklyChart(checks) {
   const values=checks.slice(-7);
   if(!values.length)return '<p class="empty">График появится после первого чек-ина.</p>';
   const pts=values.map((x,i)=>[20+i*(220/Math.max(1,values.length-1)),150-(x.energy-1)*30]);
-  return `<svg class="chart" viewBox="0 0 260 175" role="img" aria-label="Энергия за последние ${values.length} отчётов: ${values.map(x=>x.energy).join(', ')} из 5">${[30,60,90,120,150].map(y=>`<path d="M20 ${y}H245" stroke="#e8ece3" stroke-width="1"/>`).join('')}<polyline points="${pts.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#285e48" stroke-width="2"/>${pts.map(([x,y],i)=>`${i===pts.length-1?`<circle cx="${x}" cy="${y}" r="10" fill="#e1ed89"/>`:''}<circle cx="${x}" cy="${y}" r="3.5" fill="#173f35"/>`).join('')}</svg><div class="chart-labels">${values.map(x=>`<span>${fmtDate(x.date)}</span>`).join('')}</div><div class="legend"><i></i> Энергия · самооценка от 1 до 5</div>`;
+  return `<svg class="chart" viewBox="0 0 260 175" role="img" aria-label="Энергия за последние ${values.length} отчётов: ${values.map(x=>x.energy).join(', ')} из 5">${[30,60,90,120,150].map(y=>`<path d="M20 ${y}H245" class="chart-grid" stroke-width="1"/>`).join('')}<polyline points="${pts.map(p=>p.join(',')).join(' ')}" fill="none" class="chart-line" stroke-width="2"/>${pts.map(([x,y],i)=>`${i===pts.length-1?`<circle cx="${x}" cy="${y}" r="10" class="chart-halo"/>`:''}<circle cx="${x}" cy="${y}" r="3.5" class="chart-dot"/>`).join('')}</svg><div class="chart-labels">${values.map(x=>`<span>${fmtDate(x.date)}</span>`).join('')}</div><div class="legend"><i></i> Энергия · самооценка от 1 до 5</div>`;
 }
 
 // Главный сценарий MVP: сначала ответы игрока, затем понятный разбор каждого сигнала.
 function insightCards(items) {
   return items.map(item=>`<article class="insight-card"><div class="insight-top"><span>${esc(item.area)}</span><strong>${esc(item.value)}</strong></div><p>${esc(item.observation)}</p><div class="insight-action"><span>Что сделать</span><p>${esc(item.action)}</p></div></article>`).join('');
 }
+// Кольцо показывает долю шкалы. Источник всех значений — опрос, а не браслет.
+function ring(label,value,display,color='violet',large=false){
+  const normalized=Math.max(0,Math.min(100,Math.round(value||0)));
+  return `<div class="ring-wrap ${large?'ring-large':''}"><div class="ring ${color}" role="img" aria-label="${esc(label)}: ${esc(display)}" data-value="${normalized}"><div class="ring-core"><strong>${esc(display)}</strong><span>${esc(label)}</span></div></div></div>`;
+}
 function overview(){
   const a=current.assessment, last=current.checkins.at(-1);
   return header(`Привет, ${current.player.name}`, 'Твой обзор за сегодня', `<button class="btn lime" data-page="checkin">${last?.date===today()?'Обновить опрос':'Заполнить опрос'} →</button>`)+`
-    <section class="panel overview-hero"><div><span class="eyebrow">РАЗБОР СОСТОЯНИЯ</span><h2>${esc(a.label)}</h2><p>${esc(a.summary)}</p><button class="btn secondary" data-page="checkin">Ответить на вопросы →</button></div><div class="overview-score"><strong>${a.score??'—'}</strong><span>индекс самочувствия<br>из 100</span></div></section>
+    ${current.context_tip?`<div class="notice">${esc(current.context_tip)}</div>`:''}
+    <section class="panel overview-hero"><div><span class="eyebrow">РАЗБОР СОСТОЯНИЯ · ПО ТВОИМ ОТВЕТАМ</span><h2>${esc(a.label)}</h2><p>${esc(a.summary)}</p><button class="btn secondary" data-page="checkin">Ответить на вопросы →</button></div>${ring('индекс состояния',a.score,a.score??'—','violet',true)}</section>
     <div class="metric-grid">${[
-      ['Сон',last?`${last.sleep} ч`:'—'],['Энергия',last?`${last.energy}/5`:'—'],
-      ['Усталость',last?`${last.fatigue}/5`:'—'],['Стресс',last?`${last.stress}/5`:'—']
-    ].map(([name,value])=>`<div class="metric"><span>${name}</span><strong>${value}</strong></div>`).join('')}</div>
+      ['Сон',last?Math.round(last.sleep/8*100):0,last?`${last.sleep} ч`:'—','cyan'],
+      ['Энергия',last?last.energy*20:0,last?`${last.energy}/5`:'—','lime'],
+      ['Усталость',last?last.fatigue*20:0,last?`${last.fatigue}/5`:'—','orange'],
+      ['Стресс',last?last.stress*20:0,last?`${last.stress}/5`:'—','pink']
+    ].map(([name,value,display,color])=>`<div class="metric">${ring(name,value,display,color)}<small>${name==='Усталость'||name==='Стресс'?'Меньше — лучше':'По последнему опросу'}</small></div>`).join('')}</div>
     <div class="section-title"><div><span class="eyebrow">ПО ТВОИМ ОТВЕТАМ</span><h2>На что обратить внимание</h2></div><small>${last?`Опрос от ${fmtDate(last.date)}`:'Нет ответов'}</small></div>
     <div class="insight-grid">${a.insights?.length?insightCards(a.insights):'<section class="panel"><p>После первого опроса здесь появятся наблюдения по каждому показателю.</p></section>'}</div>
     <div class="page-grid overview-bottom"><section class="panel"><div class="panel-head"><h2>Как менялась энергия</h2><button class="text-button" data-page="progress">Вся динамика →</button></div>${weeklyChart(current.checkins)}</section><section class="panel"><h2>Добавь контекст</h2><p>После занятия запиши длительность и ощущение нагрузки. Так разбор сможет учитывать не только самочувствие, но и последние тренировки.</p><button class="btn outline" data-action="training">Добавить занятие →</button><p class="score-explainer">Это описательный анализ по твоим ответам. Он не ставит диагноз и не определяет, можно ли тренироваться.</p></section></div>`;
@@ -118,32 +128,52 @@ function onboarding(){
   navRender(); $('#sidebar-name').textContent='Твой аккаунт';
   $('.demo-label').textContent='Личный дневник';
   const signup=authView==='signup';
-  $('#main').innerHTML=`<div class="onboarding"><section class="hero"><div class="hero-content"><span class="eyebrow">ТЕННИС В ТВОЁМ ТЕМПЕ</span><h2>Твоя игра.<br>Твоё состояние.</h2><p>Записывай сон, стресс и нагрузку. Замечай изменения и приходи на корт с понятным планом.</p></div></section><section class="panel auth-panel"><span class="eyebrow">ЛИЧНЫЙ ДНЕВНИК</span><h2>${signup?'Создать аккаунт':'С возвращением'}</h2><p>${signup?'Начни с первого опроса. История будет только твоей.':'Войди, чтобы продолжить свою историю.'}</p><form id="auth-form">${signup?'<label class="field">Как тебя зовут<input name="name" autocomplete="given-name" maxlength="60" required></label>':''}<label class="field">Email<input name="email" type="email" autocomplete="email" maxlength="254" required></label><label class="field">Пароль<input name="password" type="password" autocomplete="${signup?'new-password':'current-password'}" minlength="8" maxlength="128" required><small>Минимум 8 символов</small></label>${signup?'<label class="check-field"><input type="checkbox" required>Согласен сохранять ответы о самочувствии в своём аккаунте Supabase. Могу удалить историю в профиле.</label>':''}<p class="form-error" role="alert"></p><p id="auth-message" role="status"></p><button class="btn lime" type="submit">${signup?'Зарегистрироваться':'Войти'} →</button></form><button class="text-button" data-action="auth-toggle">${signup?'Уже есть аккаунт? Войти':'Нет аккаунта? Зарегистрироваться'}</button><div class="settings-block"><button class="text-button" data-action="start">Посмотреть пример без регистрации →</button></div></section></div>`;
+  const reset=authView==='reset', recover=authView==='recover';
+  $('#main').innerHTML=`<div class="onboarding"><section class="hero"><div class="hero-content"><span class="eyebrow">ТЕННИС В ТВОЁМ ТЕМПЕ</span><h2>Твоя игра.<br>Твоё состояние.</h2><p>Записывай сон, стресс и нагрузку. Замечай изменения и приходи на корт с понятным планом.</p></div></section><section class="panel auth-panel"><span class="eyebrow">RALLYGUARD</span><h2>${reset?'Новый пароль':recover?'Восстановление доступа':signup?'Создать аккаунт':'С возвращением'}</h2><p>${reset?'Укажи новый пароль для аккаунта.':recover?'Пришлём ссылку для смены пароля, когда будет подключена почта.':signup?'Выбери свою роль. Позже изменить её сможет только администратор.':'Войди, чтобы продолжить свою историю.'}</p><form id="auth-form">${signup?`<div class="role-picker" role="group" aria-label="Роль при регистрации"><button type="button" class="role-option ${signupRole==='player'?'active':''}" data-role="player">Я игрок<small>Опрос и личная динамика</small></button><button type="button" class="role-option ${signupRole==='coach'?'active':''}" data-role="coach">Я тренер<small>Сводки игроков с их согласия</small></button></div><label class="field">Как тебя зовут<input name="name" autocomplete="name" maxlength="60" required></label>`:''}${reset?'':`<label class="field">Email<input name="email" type="email" autocomplete="email" maxlength="254" required></label>`}${recover?'':`<label class="field">${reset?'Новый пароль':'Пароль'}<input name="password" type="password" autocomplete="${signup||reset?'new-password':'current-password'}" minlength="8" maxlength="128" required><small>Минимум 8 символов</small></label>`}${signup&&signupRole==='player'?'<label class="check-field"><input type="checkbox" required>Согласен сохранять ответы о самочувствии в своём аккаунте Supabase. Могу удалить историю в профиле.</label>':''}<p class="form-error" role="alert"></p><p id="auth-message" role="status"></p><button class="btn lime" type="submit">${reset?'Сменить пароль':recover?'Отправить ссылку':signup?'Зарегистрироваться':'Войти'} →</button></form><button class="text-button" data-action="auth-toggle">${signup||recover?'Вернуться ко входу':'Нет аккаунта? Зарегистрироваться'}</button>${authView==='login'?'<button class="text-button" data-action="auth-recover">Забыл пароль?</button>':''}<div class="settings-block"><button class="text-button" data-action="start">Посмотреть пример без регистрации →</button></div></section></div>`;
   $('#auth-form').addEventListener('submit', async e=>{
     e.preventDefault(); const form=e.target, button=$('[type=submit]',form), f=new FormData(form);
     button.disabled=true; $('.form-error',form).textContent=''; $('#auth-message').textContent='';
     try {
-      const result=await api('/auth/'+(signup?'signup':'login'), {email:f.get('email'),password:f.get('password'),name:f.get('name')||'Игрок'});
+      if(recover){await api('/auth/recover',{email:f.get('email')});$('#auth-message').textContent='Если адрес зарегистрирован, письмо отправлено.';return;}
+      if(reset){await api('/auth/password',{password:f.get('password')});form.elements.password.value='';authView='login';account=null;current=null;await api('/auth/logout',{});onboarding();toast('Пароль изменён. Войди с новым паролем.');return;}
+      const result=await api('/auth/'+(signup?'signup':'login'), {email:f.get('email'),password:f.get('password'),name:f.get('name')||'Игрок',role:signupRole});
       form.elements.password.value='';
       if(result.confirmation_required){$('#auth-message').textContent='Проверь почту и подтверди email по ссылке. После подтверждения войди с паролем.'; return;}
-      mode='personal'; current=await api('/me/state'); location.hash='today'; await render();
+      await loadAccount(); location.hash=mode==='coach'?'coach':'today'; await render();
     } catch(error){$('.form-error',form).textContent=error.message;}
     finally{button.disabled=false;}
   });
 }
 
+// Настоящий тренер видит только игроков, которые ввели его код и дали согласие.
+async function coachDashboard(){
+  const data=await api('/coach/players');
+  return header('Моя группа','Краткие сводки игроков, которые разрешили доступ.')+`<div class="notice">Передай игроку код из профиля. Игрок вводит его и подтверждает доступ к краткой сводке. Личные заметки, пульс и HRV тренеру не передаются.</div><section class="panel"><div class="panel-head"><h2>Игроки</h2><small>${data.players.length} подключено</small></div>${data.players.length?data.players.map(p=>`<div class="coach-row"><span class="avatar">${esc(p.name.slice(0,2).toUpperCase())}</span><div class="info"><strong>${esc(p.name)}</strong><small>Последний опрос: ${p.last_checkin?fmtDate(p.last_checkin.date):'пока нет'}</small><small>Занятий за 30 дней: ${p.training_count}</small></div>${status(p.assessment)}<button class="btn outline small" data-live-report="${esc(p.player_id)}">Сводка →</button></div>`).join(''):'<p class="empty">Пока нет подключённых игроков. Скопируй свой код в профиле и передай его игроку.</p>'}</section>`;
+}
+
+// Роль всегда читаем из базы, а не из выбранной кнопки регистрации.
+async function loadAccount(){
+  account=await api('/me/profile');
+  mode=account.role==='coach'?'coach':'personal';
+  current=mode==='coach'?{player:{name:account.name,initials:account.name.slice(0,2).toUpperCase()}}:await api('/me/state');
+}
+
 function settings(){
   if(mode==='demo')return demoSettings()+`<section class="panel"><h2>Начни свою историю</h2><p>В личном аккаунте ответы сохраняются в Supabase.</p><button class="btn lime" data-action="account">Перейти ко входу →</button></section>`;
-  return header('Твой профиль','Личная история сохраняется между устройствами.')+`<div class="page-grid"><section class="panel"><h2>${esc(current.player.name)}</h2><p>${esc(current.email)}</p><p>Ответы и тренировки хранятся в твоём аккаунте. Другие игроки не имеют к ним доступа.</p><button class="btn outline" data-action="logout">Выйти из аккаунта</button></section><section class="panel"><h2>Твои данные</h2><p>Можешь скачать историю или удалить все записи. Удаление истории не удаляет аккаунт.</p><div class="split-actions"><button class="btn secondary" data-action="export-personal">Скачать историю</button><button class="text-button" data-action="clear-personal">Удалить историю</button></div><p class="score-explainer">Анализ выполняется правилами на Python. Отправки твоих показателей внешней AI-модели сейчас нет.</p></section></div>`;
+  if(mode==='coach')return header('Профиль тренера','Управляй приглашениями и уведомлениями.')+`<div class="page-grid"><section class="panel"><h2>${esc(account.name)}</h2><p>${esc(account.email)}</p><p>Твой код для игроков:</p><div class="code-box"><code>${esc(account.coach_code)}</code><button class="btn secondary small" data-action="copy-code">Скопировать</button></div><p class="score-explainer">Игрок вводит код в своём профиле и отдельно подтверждает доступ. Без этого отчёт недоступен.</p><button class="btn outline" data-action="logout">Выйти</button></section><section class="panel"><h2>Telegram-бот</h2><p>Краткие отчёты по команде в Telegram. Бот не получает личные заметки игрока.</p>${account.telegram_available?'<button class="btn lime" data-action="telegram-link">Привязать Telegram →</button>':'<div class="notice">Бот будет доступен после добавления токена BotFather в настройки сервера.</div>'}<p class="score-explainer">Привязка доступна только аккаунту тренера.</p></section></div>`;
+  const c=current.context||{};
+  return header('Твой профиль','Личная история сохраняется между устройствами.')+`<div class="page-grid"><section class="panel"><h2>${esc(current.player.name)}</h2><p>${esc(current.email)}</p><p>Ответы и тренировки хранятся в твоём аккаунте. Другие игроки не имеют к ним доступа.</p><button class="btn outline" data-action="logout">Выйти из аккаунта</button></section><section class="panel"><h2>Теннисный профиль</h2><p>Эти данные помогают учитывать твой игровой контекст.</p><form id="context-form"><label class="field">Уровень<select name="level">${[['beginner','Начинаю'],['intermediate','Играю регулярно'],['advanced','Опытный игрок']].map(([v,l])=>`<option value="${v}" ${c.level===v?'selected':''}>${l}</option>`).join('')}</select></label><label class="field">Цель<input name="goal" maxlength="120" value="${esc(c.goal||'')}" placeholder="Например, увереннее играть матч"></label><label class="field">Занятий в обычную неделю<input type="number" name="sessions_per_week" min="0" max="14" value="${c.sessions_per_week??2}" required></label><label class="field">Ближайший матч · необязательно<input type="date" name="next_match" min="${today()}" value="${esc(c.next_match||'')}"></label><p class="form-error" role="alert"></p><button class="btn secondary" type="submit">Сохранить профиль</button></form></section><section class="panel"><h2>Связь с тренером</h2>${account?.coach_connected?'<p>Тренер видит краткую сводку твоего состояния за последние 30 дней и теннисный профиль.</p><button class="btn danger" data-action="disconnect-coach">Отозвать доступ</button>':'<form id="coach-connect-form"><label class="field">Код тренера<input name="code" pattern="[a-fA-F0-9]{32}" maxlength="32" autocomplete="off" required></label><label class="check-field"><input name="consent" type="checkbox" required>Разрешаю тренеру видеть краткую сводку моих опросов и тренировок за 30 дней и теннисный профиль. Личные заметки, пульс и HRV не передаются. Могу отозвать доступ здесь.</label><p class="form-error" role="alert"></p><button class="btn secondary" type="submit">Подключить тренера</button></form>'}</section><section class="panel"><h2>Твои данные</h2><p>Можешь скачать историю или удалить все записи. Удаление истории не удаляет аккаунт.</p><div class="split-actions"><button class="btn secondary" data-action="export-personal">Скачать историю</button><button class="text-button" data-action="clear-personal">Удалить историю</button></div><p class="score-explainer">Анализ выполняется правилами на Python. Отправки твоих показателей внешней AI-модели сейчас нет.</p></section></div>`;
 }
 
 async function render(){
   const revision=++routeVersion; page=location.hash.slice(1)||'today';navRender();
   if(!current)return onboarding();
-  const views={today:overview,checkin:checkinPage,progress,coach:mode==='demo'?coach:overview,settings,about};
-  const html=await (views[page]||overview)();
+  if(mode==='coach'&&!['coach','settings','about'].includes(page)){page='coach';history.replaceState(null,'','#coach');navRender();}
+  const views={today:overview,checkin:checkinPage,progress,coach:mode==='demo'?coach:coachDashboard,settings,about};
+  const html=await (views[page]||(mode==='coach'?coachDashboard:overview))();
   if(revision!==routeVersion)return;
   $('#main').innerHTML=html; $('#sidebar-name').textContent=current.player.name; $('.avatar').textContent=current.player.initials; $('.demo-label').textContent=mode==='demo'?'Демо · вымышленные данные':'Личный дневник · Supabase';
+  requestAnimationFrame(()=>$('#main').querySelectorAll('.ring').forEach(el=>el.style.setProperty('--value',el.dataset.value)));
   $('#checkin-form')?.addEventListener('submit',async e=>{
     e.preventDefault();const form=e.target,button=$('button[type=submit]',form);button.disabled=true;$('.form-error',form).textContent='';
     const f=new FormData(form);
@@ -156,6 +186,17 @@ async function render(){
     let body;try{body=JSON.parse(await f.text());}catch{throw Error('Не удалось прочитать JSON. Используй файл-пример.');}
     current=await api('/import/'+selected,body);await render();toast('Показатели импортированы');
   }));
+
+  $('#coach-connect-form')?.addEventListener('submit',async e=>{
+    e.preventDefault();const form=e.target,button=$('button[type=submit]',form);button.disabled=true;
+    try{const data=await api('/me/coach',{code:new FormData(form).get('code')});account=await api('/me/profile');await render();toast(`Тренер ${data.coach_name} подключён`);}
+    catch(error){$('.form-error',form).textContent=error.message;button.disabled=false;}
+  });
+  $('#context-form')?.addEventListener('submit',async e=>{
+    e.preventDefault();const form=e.target,button=$('button[type=submit]',form),f=new FormData(form);button.disabled=true;
+    try{await api('/me/context',{level:f.get('level'),goal:f.get('goal'),sessions_per_week:+f.get('sessions_per_week'),next_match:f.get('next_match')||null},'PUT');current=await api('/me/state');await render();toast('Теннисный профиль сохранён');}
+    catch(error){$('.form-error',form).textContent=error.message;button.disabled=false;}
+  });
 
 }
 
@@ -188,6 +229,11 @@ async function coachDialog(id){
   formBind('/decisions/'+id,f=>({action:f.get('action'),note:f.get('note')}),async()=>{current=await api('/state/'+selected);$('#modal').close();await render();toast('Предложение доступно в карточке игрока');});
 }
 
+async function liveReport(id){
+  const p=await api('/coach/players/'+id),a=p.assessment;
+  modal('Сводка: '+p.name,`${status(a)}<p>${esc(a.summary)}</p><p>Последний опрос: ${p.last_checkin?fmtDate(p.last_checkin.date):'пока нет'} · занятий за 30 дней: ${p.training_count}</p>${p.context?.goal?`<p>Цель игрока: ${esc(p.context.goal)}</p>`:''}${p.context?.next_match?`<p>Следующий матч: ${fmtDate(p.context.next_match)}</p>`:''}<ul class="factor-list">${a.factors.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><p class="score-explainer">Сводка по самооценке игрока. Это не диагноз и не медицинский допуск к тренировкам.</p>`);
+}
+
 // Делегирование событий не требует повторного навешивания после каждой отрисовки.
 document.addEventListener('click',e=>{
   const button=e.target.closest('button');if(!button)return;
@@ -195,12 +241,18 @@ document.addEventListener('click',e=>{
   if(button.dataset.page){location.hash=button.dataset.page;return;}
   if(button.dataset.checkin)return checkinDialog(button.dataset.checkin);
   if(button.dataset.coach)return safely(()=>coachDialog(button.dataset.coach));
+  if(button.dataset.liveReport)return safely(()=>liveReport(button.dataset.liveReport));
+  if(button.dataset.role){signupRole=button.dataset.role;return onboarding();}
   if(button.dataset.scenario)return safely(async()=>{button.disabled=true;try{current=await api('/scenario/'+selected,{name:button.dataset.scenario});await render();toast('Демо-сценарий применён');}finally{button.disabled=false;}});
   const action=button.dataset.action;
   if(action==='start')return safely(async()=>{button.disabled=true;try{mode='demo';await api('/demo',{});current=await api('/state/'+selected);await render();}finally{button.disabled=false;}});
   if(action==='auth-toggle'){authView=authView==='login'?'signup':'login';return onboarding();}
+  if(action==='auth-recover'){authView='recover';return onboarding();}
   if(action==='account'){mode='personal';current=null;authView='login';return onboarding();}
-  if(action==='logout')return safely(async()=>{await api('/auth/logout',{});current=null;onboarding();toast('Ты вышел из аккаунта');});
+  if(action==='logout')return safely(async()=>{await api('/auth/logout',{});current=null;account=null;mode='personal';authView='login';onboarding();toast('Ты вышел из аккаунта');});
+  if(action==='copy-code')return safely(async()=>{await navigator.clipboard.writeText(account.coach_code);toast('Код скопирован');});
+  if(action==='telegram-link')return safely(async()=>{const result=await api('/coach/telegram-link');modal('Подключить Telegram',`<p>Открой бота и нажми Start. Ссылка действует 10 минут.</p><a class="btn lime" href="${esc(result.url)}" target="_blank" rel="noopener">Открыть бота →</a>`);});
+  if(action==='disconnect-coach')return safely(async()=>{await api('/me/coach',undefined,'DELETE');account=await api('/me/profile');await render();toast('Доступ тренера отозван');});
   if(action==='export-personal')return safely(async()=>{
     const data=await api('/me/export'); const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
     const a=document.createElement('a');a.href=url;a.download='rallyguard-history.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -224,11 +276,13 @@ safely(async()=>{
   health=await api('/health');
   // После подтверждения почты убираем токены из адреса и переносим в HttpOnly cookies.
   const fragment=new URLSearchParams(location.hash.slice(1));
+  const recovering=fragment.get('type')==='recovery';
   if(fragment.has('access_token')){
     const tokens={access_token:fragment.get('access_token'),refresh_token:fragment.get('refresh_token')};
     history.replaceState(null,'',location.pathname+'#today');
     await api('/auth/session',tokens);
   }
-  try{current=await api('/me/state');}catch(error){if(error.status!==401)throw error;current=null;}
+  if(recovering){authView='reset';current=null;onboarding();return;}
+  try{await loadAccount();}catch(error){if(error.status!==401)throw error;current=null;account=null;}
   await render();
 });
