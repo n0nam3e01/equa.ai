@@ -78,3 +78,28 @@ def test_analytics_limits_and_missing_history():
 def test_assets(client):
     for path in ['/','/static/app.js','/static/styles.css','/static/hero.png','/static/fonts/manrope-cyrillic.woff2']:
         assert client.get(path).status_code==200
+
+
+def test_before_training_after_and_personal_patterns(client):
+    client.post('/api/demo', json={})
+    today = date.today().isoformat()
+    client.post('/api/checkins/alex', json={
+        'date': today, 'sleep': 7, 'energy': 4, 'fatigue': 2,
+        'stress': 2, 'discomfort': 0, 'limitation': False})
+    first = client.post('/api/trainings/alex', json={
+        'date': today, 'kind': 'court', 'minutes': 85, 'rpe': 8,
+        'focus': 3, 'note': 'Личная заметка'})
+    assert first.status_code == 200
+    training = first.json()['trainings'][-1]
+    assert training['before']['energy'] == 4
+    assert training['before']['score'] is not None
+    assert training['after'] is None
+    reflected = client.put(f"/api/trainings/alex/{training['id']}/reflection", json={
+        'quality': 6, 'energy_after': 4, 'discomfort_after': 'same',
+        'note': 'Работа над подачей'})
+    assert reflected.status_code == 200
+    saved = next(item for item in reflected.json()['trainings'] if item['id'] == training['id'])
+    assert saved['after']['quality'] == 6
+    assert reflected.json()['assessment']['patterns']['sample_size'] >= 1
+    assert client.put('/api/trainings/timur/'+training['id']+'/reflection', json={
+        'quality': 6, 'energy_after': 4, 'discomfort_after': 'same'}).status_code == 404

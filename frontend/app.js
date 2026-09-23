@@ -13,8 +13,8 @@ const paths = {
   settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 1v4m0 14v4M1 12h4m14 0h4M4 4l3 3m10 10 3 3M4 20l3-3M17 7l3-3'
 };
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] || paths.ball}"/></svg>`;
-const nav = [['today','Обзор','home'],['checkin','Опрос','path'],['progress','Динамика','chart'],['coach','Тренер','team']];
-let mode = 'personal', authView = 'login', signupRole = 'player', refreshTask = null;
+const nav = [['today','Обзор','home'],['checkin','Опрос','path'],['progress','Динамика','chart'],['insights','Закономерности','target'],['coach','Тренер','team']];
+let mode = 'personal', authView = 'login', signupRole = 'player', refreshTask = null, firstLogin = false;
 let page = 'today', current = null, health = {}, selected = sessionStorage.getItem('rg_player') || 'alex';
 let account = null;
 let routeVersion = 0, toastTimer;
@@ -36,6 +36,7 @@ async function api(path, data, method, retried = false) {
   // Личный режим обращается только к /me: идентификатор владельца задаёт сервер.
   if(mode === 'personal') {
     path = path.replace(/^\/(state|checkins|trainings)\/[^/]+$/, '/me/$1');
+    path = path.replace(/^\/trainings\/[^/]+\/([^/]+)\/reflection$/, '/me/trainings/$1/reflection');
     if(path === '/export') path = '/me/export';
   }
   const response = await fetch('/api'+path,{method:method || (data === undefined ? 'GET':'POST'),
@@ -65,7 +66,7 @@ async function safely(action) {
 function status(a){return `<span class="status ${esc(a.level)}">${esc(a.label)}</span>`;}
 function header(title,subtitle,action=''){return `<div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div>${action}</div>`;}
 function navRender(){
-  const items=mode==='coach'?[['coach','Моя группа','team'],['settings','Профиль','settings'],['about','О проекте','ball']]:mode==='demo'?[...nav,['settings','Профиль','settings']]:[...nav.slice(0,3),['settings','Профиль','settings']];
+  const items=mode==='coach'?[['coach','Моя группа','team'],['settings','Профиль','settings'],['about','О проекте','ball']]:mode==='demo'?[...nav,['settings','Профиль','settings']]:[...nav.slice(0,4),['settings','Профиль','settings']];
   $('#desktop-nav').innerHTML=items.map(([id,name,i])=>`<a class="nav-link ${page===id?'active':''}" href="#${id}" ${page===id?'aria-current="page"':''}>${icon(i)}${name}</a>`).join('');
   $('#mobile-nav').innerHTML=items.slice(0,4).map(([id,name,i])=>`<a class="nav-link ${page===id?'active':''}" href="#${id}" ${page===id?'aria-current="page"':''}>${icon(i)}${name}</a>`).join('');
   $('#breadcrumb').textContent=nav.find(n=>n[0]===page)?.[1] || 'RallyGuard';
@@ -87,11 +88,54 @@ function ring(label,value,display,color='sage',large=false){
   const normalized=Math.max(0,Math.min(100,Math.round(value||0)));
   return `<div class="ring-wrap ${large?'ring-large':''}"><div class="ring ${color}" role="img" aria-label="${esc(label)}: ${esc(display)}" data-value="${normalized}"><div class="ring-core"><strong>${esc(display)}</strong><span>${esc(label)}</span></div></div></div>`;
 }
+function baselineBlock(a){
+  const baseline=a.baseline||{};
+  if(!baseline.ready)return `<section class="panel"><h2>Твоя обычная динамика</h2><p>${esc(baseline.message||'Заполни первый опрос, чтобы начать личную историю.')}</p><small>${baseline.sample_size||0} предыдущих ответов · сравнение появится после 5</small></section>`;
+  return `<section class="panel"><div class="panel-head"><h2>Что изменилось сегодня</h2><small>Твоя история · ${baseline.sample_size} ответов</small></div><div class="baseline-list">${baseline.changes.map(x=>`<div><strong>${esc(x.label)}</strong><span>${esc(x.value)} · обычно ${esc(x.baseline)}</span><b class="${x.direction==='близко к обычному'?'neutral':''}">${esc(x.direction)}</b></div>`).join('')}</div><p class="score-explainer">${esc(baseline.message)}</p></section>`;
+}
+function explainScore(a){
+  const details=a.score_details;
+  if(!details)return '';
+  const labels={energy:'Энергия',fatigue:'Усталость',stress:'Стресс',discomfort:'Дискомфорт'};
+  return `<details class="score-detail"><summary>Как получился индекс ${details.score}/100</summary><p>Стартуем со 100 баллов и вычитаем баллы за ответы в последнем опросе.</p><div class="baseline-list">${Object.entries(details.deductions).map(([key,value])=>`<div><strong>${labels[key]}</strong><span>−${value}</span></div>`).join('')}</div><p>${a.score_change===null?'Пока нет предыдущего индекса для сравнения.':`Изменение к предыдущему опросу: ${a.score_change>0?'+':''}${a.score_change} баллов.`}</p><p class="score-explainer">${esc(details.note)} Индекс описывает ответы, но не определяет медицинскую готовность к игре.</p></details>`;
+}
+function matchBlock(){
+  const match=current.context?.next_match;
+  if(!match)return '';
+  const days=Math.ceil((new Date(match+'T12:00:00')-new Date(today()+'T12:00:00'))/86400000);
+  if(days<0)return '';
+  return `<div class="notice"><strong>${days===0?'Матч сегодня':`Матч через ${days} дн.`}</strong><br>Посмотри последние ответы и при заметных изменениях обсуди план занятия с тренером. Приложение не определяет готовность к матчу.</div>`;
+}
+function adviceCacheKey(){
+  const source=JSON.stringify([account.email,current.context,current.checkins.at(-1),current.checkins.length,current.trainings.at(-1),current.trainings.length]);
+  let hash=2166136261;
+  for(let i=0;i<source.length;i++)hash=Math.imul(hash^source.charCodeAt(i),16777619);
+  return 'rg_advice_'+(hash>>>0).toString(16);
+}
+async function loadAdvice(force=false){
+  const target=$('#daily-advice');
+  if(!target||mode!=='personal')return;
+  const cacheKey=adviceCacheKey();
+  if(!force){try{const cached=JSON.parse(sessionStorage.getItem(cacheKey)||'null');if(cached&&Date.now()-cached.time<30*60*1000){target.textContent=cached.text;$('#advice-source').textContent=cached.source;return;}}catch{/* Кэш необязателен. */}}
+  const revision=routeVersion;
+  target.textContent='Готовим совет по твоей истории…';
+  try{
+    const result=await api('/me/advice');
+    if(revision!==routeVersion||!$('#daily-advice'))return;
+    $('#daily-advice').textContent=result.text;
+    $('#advice-source').textContent=result.source==='gemini'?'Сводка Gemini по твоей истории · без диагноза':'По рассчитанным сигналам · Gemini пока недоступен';
+    try{sessionStorage.setItem(cacheKey,JSON.stringify({text:result.text,source:$('#advice-source').textContent,time:Date.now()}));}catch{/* Совет остаётся видимым без кэша. */}
+  }catch{
+    if(revision===routeVersion&&$('#daily-advice'))$('#daily-advice').textContent=current.assessment.summary;
+  }
+}
 function overview(){
   const a=current.assessment, last=current.checkins.at(-1);
   return header(`Привет, ${current.player.name}`, 'Твой обзор за сегодня', `<button class="btn lime" data-page="checkin">${last?.date===today()?'Обновить опрос':'Заполнить опрос'} →</button>`)+`
-    ${current.context_tip?`<div class="notice">${esc(current.context_tip)}</div>`:''}
-    <section class="panel overview-hero"><div><span class="eyebrow">РАЗБОР СОСТОЯНИЯ · ПО ТВОИМ ОТВЕТАМ</span><h2>${esc(a.label)}</h2><p>${esc(a.summary)}</p><button class="btn secondary" data-page="checkin">Ответить на вопросы →</button></div>${ring('индекс состояния',a.score,a.score??'—','sage',true)}</section>
+    ${matchBlock()}${current.context_tip?`<div class="notice">${esc(current.context_tip)}</div>`:''}
+    <section class="panel overview-hero"><div><span class="eyebrow">ПЕРЕД КОРТОМ · ПО ТВОИМ ОТВЕТАМ</span><h2>${esc(a.label)}</h2><p>${esc(a.summary)}</p><button class="btn secondary" data-page="checkin">Ответить на вопросы →</button></div>${ring('индекс состояния',a.score,a.score??'—','sage',true)}</section>
+    <section class="panel ai-advice"><span class="eyebrow">СОВЕТ RALLYGUARD</span><p id="daily-advice">${esc(a.summary)}</p><small id="advice-source">По рассчитанным сигналам · без диагноза</small>${mode==='personal'?'<div class="ai-permission"><p>Для сводки Gemini получит теннисный профиль, общие итоги истории, последние 7 опросов и 5 тренировок с короткими заметками. Имя, email и пароль не передаются.</p><button class="btn secondary small" data-action="ai-advice">Получить совет ИИ</button></div>':''}</section>
+    <div class="page-grid overview-bottom">${baselineBlock(a)}<section class="panel"><h2>Почему такой индекс</h2>${explainScore(a)||'<p>После первого опроса появится объяснение.</p>'}</section></div>
     <div class="metric-grid">${[
       ['Сон',last?Math.round(last.sleep/8*100):0,last?`${last.sleep} ч`:'—','cyan'],
       ['Энергия',last?last.energy*20:0,last?`${last.energy}/5`:'—','lime'],
@@ -122,7 +166,14 @@ function checkinPage(){
 function progress(){const a=current.assessment;return header('Моя динамика','Сравнивай себя с собой. Замечай изменения.',`<button class="btn secondary" data-checkin="good">+ Чек-ин</button>`)+`
   <div class="stat-row"><div class="stat"><small>Индекс состояния</small><strong>${a.score??'—'}<small>${a.score===null?'':' / 100'}</small></strong>${status(a)}</div><div class="stat"><small>Нагрузка за 7 дней</small><strong>${a.load}</strong><small>минуты × RPE · усл. ед.</small></div><div class="stat"><small>Полнота недели</small><strong>${a.reported_days}<small> / 7 дней</small></strong><small>Дни с чек-ином</small></div></div>
   <div class="page-grid"><section class="panel"><h2>Энергия по последним отчётам</h2>${weeklyChart(current.checkins)}<div class="notice">${mode==='demo'?'Демонстрационная история, не результаты реального пилота.':'Твоя сохранённая история. График дополняется с каждым опросом.'}</div></section><section class="panel"><h2>Что повлияло на оценку</h2><ul class="factor-list">${a.factors.map(f=>`<li>${esc(f)}</li>`).join('')}</ul><p class="score-explainer">${esc(a.quality)}. Индекс — описательная формула, не вероятность травмы или выгорания.</p><details><summary>Как считается индекс</summary><p class="score-explainer">100 − (5 − энергия) × 7 − (усталость − 1) × 6 − (стресс − 1) × 5 − дискомфорт × 3. Результат ограничен 0–100. При ограничении движения сигнал внимания имеет приоритет. Пороги демонстрационные и требуют проверки специалистом.</p></details></section>
-  <section class="panel wide"><h2>История занятий</h2>${current.trainings.length?`<div class="table-wrap"><table><thead><tr><th>Дата</th><th>Занятие</th><th>Минуты</th><th>RPE</th><th>Нагрузка</th><th>Фокус</th></tr></thead><tbody>${[...current.trainings].reverse().slice(0,20).map(s=>`<tr><td>${fmtDate(s.date)}</td><td>${{court:'Корт',match:'Матч',fitness:'ОФП'}[s.kind]}</td><td>${s.minutes}</td><td>${s.rpe}/10</td><td>${s.minutes*s.rpe}</td><td>${s.focus}/5</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Занятий пока нет.</p>'}<button class="text-button" data-action="training">+ Записать занятие</button></section></div>`;}
+  <section class="panel wide"><h2>История занятий</h2><p class="score-explainer">RPE — твоя оценка тяжести занятия от 1 до 10. <button class="text-button" data-action="explain-rpe">Что это?</button></p>${current.trainings.length?`<div class="table-wrap"><table><thead><tr><th>Дата</th><th>Занятие</th><th>Минуты</th><th>Тяжесть</th><th>Оценка после</th><th>Действие</th></tr></thead><tbody>${[...current.trainings].reverse().slice(0,20).map(s=>`<tr><td>${fmtDate(s.date)}</td><td>${{court:'Корт',match:'Матч',fitness:'ОФП'}[s.kind]}</td><td>${s.minutes}</td><td>${s.rpe}/10</td><td>${s.after?`${s.after.quality}/10`:'—'}</td><td>${s.after?'Заполнено':`<button class="text-button" data-reflect="${esc(s.id)}">Как прошло?</button>`}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">Занятий пока нет.</p>'}<button class="text-button" data-action="training">+ Записать занятие</button></section></div>`;}
+
+function insightsPage(){
+  const patterns=current.assessment.patterns||{sample_size:0,observations:[]};
+  const recent=[...current.trainings].reverse().find(s=>s.after);
+  const count=patterns.sample_size, word=count%10===1&&count%100!==11?'занятие':count%10>=2&&count%10<=4&&(count%100<12||count%100>14)?'занятия':'занятий';
+  return header('Личные закономерности','Связь состояния до занятия, нагрузки и твоей оценки после него.')+`<div class="page-grid"><section class="panel"><h2>До → занятие → после</h2>${recent?`<div class="journey"><div><small>До</small><strong>${recent.before?`Энергия ${recent.before.energy}/5 · стресс ${recent.before.stress}/5`:'Опрос перед занятием не заполнен'}</strong></div><div><small>Занятие</small><strong>${recent.minutes} мин · тяжесть ${recent.rpe}/10</strong></div><div><small>После</small><strong>Качество ${recent.after.quality}/10 · энергия ${recent.after.energy_after}/10</strong></div></div><p class="score-explainer">RPE — личная оценка того, насколько тяжёлым было занятие. <button class="text-button" data-action="explain-rpe">Подробнее</button></p>`:'<p>Запиши тренировку и ответь на три вопроса после неё. Тогда появится первая связанная история.</p>'}</section><section class="panel"><h2>Что повторяется</h2><p>${count} ${word} с ответами до и после.</p>${patterns.stage==='collecting'?'<div class="notice">Для наблюдений нужно минимум 5 связанных занятий. Каждая новая запись делает картину точнее.</div>':`<ul class="factor-list">${patterns.observations.map(item=>`<li>${esc(item)}</li>`).join('')}</ul><p class="score-explainer">Это совпадения в твоих записях, а не доказательство причины.</p>`}<button class="btn secondary" data-action="training">Добавить занятие →</button></section></div>`;
+}
 
 async function coach(){
   const data=await api('/team');
@@ -132,7 +183,7 @@ async function coach(){
 
 function demoSettings(){return header('Профиль и демо','Управление данными и сценариями для проверки MVP.')+`<div class="page-grid"><section class="panel"><div class="settings-block"><h3>Демонстрационный игрок</h3><p>Переключение не даёт доступ к данным других посетителей.</p><label class="field">Игрок<select id="player-select">${[['alex','Алекс'],['mira','Мира'],['timur','Тимур']].map(([id,n])=>`<option value="${id}" ${id===selected?'selected':''}>${n}</option>`).join('')}</select></label></div><div class="settings-block"><h3>Три сценария состояния</h3><p>Заменяют сегодняшний опрос выбранного демо-игрока. Остальная история сохраняется.</p><div class="split-actions"><button class="btn secondary small" data-scenario="steady">Обычный ритм</button><button class="btn secondary small" data-scenario="tired">Усталость</button><button class="btn secondary small" data-scenario="attention">Нужен разговор</button></div></div><div class="settings-block"><h3>Импорт показателей</h3><p>JSON с массивом checkins, максимум 90 записей и 100 КБ. Только вымышленные данные для демо.</p><label class="field">Файл JSON<input id="import-file" type="file" accept=".json,application/json"></label><button class="text-button" data-action="sample">Скачать пример JSON</button></div></section><section class="panel"><h3>Хранение и анализ</h3><p>${health.database==='supabase'?'Supabase · PostgreSQL':'SQLite · '+(health.ephemeral?'временное облачное хранение':'локальное хранение')}</p>${health.ephemeral?'<div class="notice">История может исчезнуть или отличаться между экземплярами Vercel. Для постоянного демо подключите Supabase.</div>':''}<p>Разбор по ответам работает без внешнего AI API: правила и причины видны в обзоре.</p><p class="score-explainer">Это изолированная песочница с вымышленными профилями. Не вводи персональные данные о здоровье.</p><div class="split-actions"><a class="btn outline" href="/api/export" download>Экспортировать данные</a><button class="btn danger" data-action="delete">Удалить мою демо-сессию</button></div><hr style="border:0;border-top:1px solid var(--line);margin:24px 0"><button class="btn secondary" data-page="coach">Открыть обзор тренера →</button><button class="text-button" data-page="progress">Моя динамика →</button></section></div>`;}
 
-function about(){return header('О RallyGuard','Рабочий прототип для Overclock Hackathon · BioTech')+`<div class="page-grid"><section class="panel"><h2>Игрок в центре</h2><p>Короткий опрос превращает субъективные показатели в понятный обзор. Вместо одинакового урока для любой проблемы игрок видит, что изменилось и какой следующий шаг относится именно к его ответам.</p><h3>Что можно проверить</h3><ol class="plan-steps"><li>Заполнить опрос сна, энергии, усталости, стресса и дискомфорта.</li><li>Посмотреть отдельные наблюдения и действия по своим ответам.</li><li>Записать тренировку и увидеть динамику нагрузки.</li><li>Вернуться в аккаунт с другого устройства и продолжить историю.</li></ol><button class="btn lime" data-page="checkin">Перейти к опросу →</button></section><section class="panel"><h2>Границы прототипа</h2><p>В личном аккаунте сохраняются твои ответы. В режиме примера используются вымышленные профили. Пороги индекса — демонстрационные правила; клиническая точность и снижение травматизма не исследованы.</p><p>Приложение не определяет причину боли, не диагностирует выгорание и не выдаёт медицинский допуск к нагрузке. Предложения по физической части требуют обсуждения с тренером или специалистом.</p><p class="score-explainer">Разбор сейчас выполняют прозрачные правила Python. Генеративный AI можно добавить для объяснения уже рассчитанных сигналов после настройки API и проверки безопасности данных.</p></section></div>`;}
+function about(){return header('Что такое RallyGuard','Сайт для теннисистов, который помогает заметить изменения в самочувствии до тренировки.')+`<div class="page-grid"><section class="panel wide"><span class="eyebrow">КОНЦЕПЦИЯ</span><h2>Игрок сначала рассказывает о себе, потом получает понятный следующий шаг</h2><p>RallyGuard не пытается заменить тренера или носимое устройство. Игрок каждый день отвечает на короткие вопросы о сне, энергии, усталости, стрессе, дискомфорте и тренировке. Приложение сравнивает ответы с его собственной историей и объясняет, что изменилось.</p><div class="intro-list"><div>${icon('path')}<strong>Опрос за минуту</strong><p>Все основные показатели на одном экране, без длинной анкеты.</p></div><div>${icon('chart')}<strong>Разбор по сигналам</strong><p>Сон, энергия, усталость и стресс получают отдельное наблюдение и действие.</p></div><div>${icon('team')}<strong>Связь с тренером</strong><p>Игрок сам решает, кому открыть краткую сводку, и может отозвать доступ.</p></div></div></section><section class="panel"><h2>Что есть в приложении</h2><ol class="plan-steps"><li>Личный аккаунт игрока с сохранением истории в Supabase.</li><li>Круговой индекс состояния и шкалы по последнему опросу.</li><li>История энергии и тренировочной нагрузки.</li><li>Теннисный профиль: уровень, цель, обычная частота занятий и ближайший матч.</li><li>Понятные рекомендации без медицинских диагнозов.</li><li>Отдельная регистрация тренера и группа игроков с их согласием.</li><li>Подготовленная Telegram-связка для коротких отчётов тренера.</li></ol></section><section class="panel"><h2>Как проходит день игрока</h2><div class="steps-timer"><div class="focus-orb">1–2<br><small>мин</small></div></div><ol class="plan-steps"><li>Игрок заполняет чек-ин.</li><li>Система показывает индекс и причины изменения.</li><li>Игрок записывает тренировку или отмечает ближайший матч.</li><li>При необходимости он открывает тренеру сводку за последние 30 дней.</li></ol><button class="btn lime" data-page="checkin">Попробовать опрос →</button></section><section class="panel"><h2>Что видит тренер</h2><p>Тренер получает не весь дневник игрока, а короткий рабочий контекст: последний чек-ин, общую оценку состояния, число тренировок, цель и дату ближайшего матча. Личные заметки, пульс и HRV в отчёт не входят.</p><p>Доступ появляется только после двух действий игрока: он вводит код тренера и отмечает согласие. Кнопка отзыва находится в его профиле.</p><h3>Telegram</h3><p>После привязки тренер сможет запросить список подключённых игроков и краткую сводку командой в боте. Это дополнительный канал, а не отдельный кабинет с правами администратора.</p></section><section class="panel wide"><h2>Почему это подходит BioTech-треку</h2><p>Проект работает с данными о состоянии и нагрузке спортсмена и переводит их в понятное решение для следующего занятия. Сейчас анализ прозрачен: Python рассчитывает описательный индекс, сравнивает показатели с личной медианой и показывает причины. Позже можно подключить AI для объяснения уже рассчитанных сигналов, не отдавая модели весь дневник без согласия.</p><div class="metric-grid concept-metrics"><div class="metric"><strong>Игрок</strong><small>сам вводит данные и контролирует доступ</small></div><div class="metric"><strong>Тренер</strong><small>получает короткий контекст для разговора</small></div><div class="metric"><strong>Система</strong><small>объясняет, откуда взялся сигнал</small></div><div class="metric"><strong>Команда</strong><small>может использовать Telegram-отчёты</small></div></div></section><section class="panel"><h2>Границы MVP</h2><p>Индекс в прототипе не является вероятностью травмы, медицинским допуском или диагнозом. При боли или ограничении движения приложение предлагает обратиться к тренеру или специалисту.</p><p class="score-explainer">Для хакатона используются синтетические демо-данные. В продакшене понадобятся согласия, политика хранения, SMTP, проверка модели на данных и отдельная оценка специалистами.</p></section><section class="panel"><h2>Технологии</h2><p>FastAPI и Python отвечают за API и объяснимый расчёт. Supabase хранит аккаунты и личную историю с RLS. Vercel публикует сайт. Клиентская часть сделана без тяжёлого сборщика: адаптивный HTML, CSS и JavaScript с сохранением темы и плавными кольцевыми шкалами.</p></section></div>`;}
 
 // Вход является основным сценарием; демо запускается только отдельной кнопкой.
 function onboarding(){
@@ -150,7 +201,7 @@ function onboarding(){
       const result=await api('/auth/'+(signup?'signup':'login'), {email:f.get('email'),password:f.get('password'),name:f.get('name')||'Игрок',role:signupRole});
       form.elements.password.value='';
       if(result.confirmation_required){$('#auth-message').textContent='Проверь почту и подтверди email по ссылке. После подтверждения войди с паролем.'; return;}
-      await loadAccount(); location.hash=mode==='coach'?'coach':'today'; await render();
+      firstLogin=signup; await loadAccount(); location.hash=mode==='coach'?'coach':'today'; await render(); if(firstLogin&&mode==='personal'){firstLogin=false;welcomeProfile();}
     } catch(error){$('.form-error',form).textContent=error.message;}
     finally{button.disabled=false;}
   });
@@ -159,7 +210,7 @@ function onboarding(){
 // Настоящий тренер видит только игроков, которые ввели его код и дали согласие.
 async function coachDashboard(){
   const data=await api('/coach/players');
-  return header('Моя группа','Краткие сводки игроков, которые разрешили доступ.')+`<div class="notice">Передай игроку код из профиля. Игрок вводит его и подтверждает доступ к краткой сводке. Личные заметки, пульс и HRV тренеру не передаются.</div><section class="panel"><div class="panel-head"><h2>Игроки</h2><small>${data.players.length} подключено</small></div>${data.players.length?data.players.map(p=>`<div class="coach-row"><span class="avatar">${esc(p.name.slice(0,2).toUpperCase())}</span><div class="info"><strong>${esc(p.name)}</strong><small>Последний опрос: ${p.last_checkin?fmtDate(p.last_checkin.date):'пока нет'}</small><small>Занятий за 30 дней: ${p.training_count}</small></div>${status(p.assessment)}<button class="btn outline small" data-live-report="${esc(p.player_id)}">Сводка →</button></div>`).join(''):'<p class="empty">Пока нет подключённых игроков. Скопируй свой код в профиле и передай его игроку.</p>'}</section>`;
+  return header('Моя группа','Что стоит знать перед разговором с игроком?')+`<div class="notice">Данные появятся только после согласия игрока. Личные заметки, пульс и HRV тренеру не передаются.</div><section class="panel"><div class="panel-head"><h2>Игроки</h2><small>${data.players.length} подключено</small></div>${data.players.length?data.players.map(p=>`<div class="coach-row"><span class="avatar">${esc(p.name.slice(0,2).toUpperCase())}</span><div class="info"><strong>${esc(p.name)}</strong><small>${p.assessment.baseline?.ready?p.assessment.baseline.changes.filter(x=>x.direction!=='близко к обычному').slice(0,2).map(x=>`${esc(x.label)} ${esc(x.direction)}`).join(' · ')||'Близко к обычному':'Накопление личной истории'}</small><small>Последний опрос: ${p.last_checkin?fmtDate(p.last_checkin.date):'пока нет'} · занятий за 30 дней: ${p.training_count}</small>${p.last_training?`<small>Последнее занятие: ${p.last_training.minutes} мин · тяжесть ${p.last_training.rpe}/10${p.last_training.quality?` · качество ${p.last_training.quality}/10`:''}</small>`:''}${p.context?.next_match?`<small>Матч: ${fmtDate(p.context.next_match)}</small>`:''}</div>${status(p.assessment)}<button class="btn outline small" data-live-report="${esc(p.player_id)}">Профиль →</button></div>`).join(''):'<p class="empty">Пока нет подключённых игроков. Скопируй свой код в профиле и передай его игроку.</p>'}</section><p class="score-explainer">Тяжесть занятия (RPE) — личная оценка игрока от 1 до 10, а не измерение устройства.</p>`;
 }
 
 // Роль всегда читаем из базы, а не из выбранной кнопки регистрации.
@@ -180,10 +231,11 @@ async function render(){
   const revision=++routeVersion; page=location.hash.slice(1)||'today';navRender();
   if(!current)return onboarding();
   if(mode==='coach'&&!['coach','settings','about'].includes(page)){page='coach';history.replaceState(null,'','#coach');navRender();}
-  const views={today:overview,checkin:checkinPage,progress,coach:mode==='demo'?coach:coachDashboard,settings,about};
+  const views={today:overview,checkin:checkinPage,progress,insights:insightsPage,coach:mode==='demo'?coach:coachDashboard,settings,about};
   const html=await (views[page]||(mode==='coach'?coachDashboard:overview))();
   if(revision!==routeVersion)return;
   $('#main').innerHTML=html; $('#sidebar-name').textContent=current.player.name; $('.avatar').textContent=current.player.initials; $('.demo-label').textContent=mode==='demo'?'Демо · вымышленные данные':'Личный дневник · Supabase';
+  if(page==='today'&&mode==='personal'&&localStorage.getItem('rg_ai_consent_'+account.email)==='yes')void loadAdvice();
   requestAnimationFrame(()=>$('#main').querySelectorAll('.ring').forEach(el=>el.style.setProperty('--value',el.dataset.value)));
   $('#checkin-form')?.addEventListener('submit',async e=>{
     e.preventDefault();const form=e.target,button=$('button[type=submit]',form);button.disabled=true;$('.form-error',form).textContent='';
@@ -203,6 +255,8 @@ async function render(){
     try{const data=await api('/me/coach',{code:new FormData(form).get('code')});account=await api('/me/profile');await render();toast(`Тренер ${data.coach_name} подключён`);}
     catch(error){$('.form-error',form).textContent=error.message;button.disabled=false;}
   });
+  // До ввода кода игрок видит точный состав сводки, которую получит тренер.
+  $('#coach-connect-form')?.insertAdjacentHTML('afterbegin',`<div class="consent-preview"><strong>Тренер увидит</strong><p>Статус сегодня, энергию, усталость, стресс, занятия и их субъективную тяжесть, оценку после занятия, цель и ближайший матч.</p><strong>Тренер не увидит</strong><p>Личные заметки, пульс, HRV, email и исходные данные устройств.</p></div>`);
   $('#context-form')?.addEventListener('submit',async e=>{
     e.preventDefault();const form=e.target,button=$('button[type=submit]',form),f=new FormData(form);button.disabled=true;
     try{await api('/me/context',{level:f.get('level'),goal:f.get('goal'),sessions_per_week:+f.get('sessions_per_week'),next_match:f.get('next_match')||null},'PUT');current=await api('/me/state');await render();toast('Теннисный профиль сохранён');}
@@ -220,7 +274,7 @@ const scale = (low,high) => [[1,`1 · ${low}`],[2,'2'],[3,'3'],[4,'4'],[5,`5 · 
 function formBind(path,convert,onSuccess){
   $('#modal-form').addEventListener('submit',async e=>{
     e.preventDefault();const form=e.target,button=$('button[type=submit]',form);button.disabled=true;$('.form-error',form).textContent='';
-    try{const result=await api(path,convert(new FormData(form)));await onSuccess(result);}
+    try{const result=await api(path,convert(new FormData(form)),path.endsWith('/reflection')?'PUT':undefined);await onSuccess(result);}
     catch(err){$('.form-error',form).textContent=err.message;}
     finally{button.disabled=false;}
   });
@@ -231,8 +285,19 @@ function checkinDialog(mood='good'){
   formBind('/checkins/'+selected,f=>({date:f.get('date'),sleep:+f.get('sleep'),energy:+f.get('energy'),stress:+f.get('stress'),fatigue:+f.get('fatigue'),discomfort:+f.get('discomfort'),limitation:f.has('limitation'),resting_hr:f.get('resting_hr')?+f.get('resting_hr'):null,hrv:f.get('hrv')?+f.get('hrv'):null}),async result=>{current=result;$('#modal').close();await render();toast('Чек-ин сохранён. Предложение обновлено.');});
 }
 function trainingDialog(){
-  modal('Как прошло занятие?',`<p>Оцени всё занятие, а не только самый тяжёлый момент.</p><form id="modal-form"><div class="form-grid">${selectField('kind','Тип занятия',[['court','Тренировка на корте'],['match','Матч'],['fitness','ОФП']],'court')}<label class="field">Дата<input type="date" name="date" value="${today()}" max="${today()}" required></label><label class="field">Длительность, минут<input name="minutes" type="number" min="1" max="360" value="60" required></label><label class="field">Тяжесть нагрузки RPE, 1–10<input name="rpe" type="number" min="1" max="10" value="5" required><small>1 — очень легко, 10 — максимально тяжело</small></label>${selectField('focus','Удерживал концентрацию',scale('редко','часто'),3)}<label class="field full">Что получилось?<textarea name="note" maxlength="500" placeholder="Например: возвращался к следующему мячу после ошибки"></textarea></label></div><p class="form-error" role="alert"></p><div class="form-actions"><button type="submit" class="btn lime">Сохранить занятие →</button></div></form>`);
-  formBind('/trainings/'+selected,f=>({date:f.get('date'),kind:f.get('kind'),minutes:+f.get('minutes'),rpe:+f.get('rpe'),focus:+f.get('focus'),note:f.get('note')}),async result=>{current=result;$('#modal').close();await render();toast('Занятие добавлено в историю');});
+  modal('Запиши занятие',`<p>Сначала сохраним нагрузку, затем за 20 секунд отметим, как прошла тренировка.</p><form id="modal-form"><div class="form-grid">${selectField('kind','Тип занятия',[['court','Тренировка на корте'],['match','Матч'],['fitness','ОФП']],'court')}<label class="field">Дата<input type="date" name="date" value="${today()}" max="${today()}" required></label><label class="field">Длительность, минут<input name="minutes" type="number" min="1" max="360" value="60" required></label><label class="field">Насколько тяжёлой была тренировка?<input name="rpe" type="number" min="1" max="10" value="5" required><small>RPE · 1 — очень легко, 5 — умеренно, 8 — очень тяжело, 10 — максимум. <button type="button" class="text-button" data-action="explain-rpe">Что такое RPE?</button></small></label>${selectField('focus','Удавалось сохранять концентрацию?',scale('редко','часто'),3)}<label class="field full">Личная заметка · необязательно<textarea name="note" maxlength="500" placeholder="Что хочется запомнить? Тренер эту заметку не увидит."></textarea></label></div><p class="form-error" role="alert"></p><div class="form-actions"><button type="submit" class="btn lime">Сохранить занятие →</button></div></form>`);
+  const previous=new Set(current.trainings.map(s=>s.id));
+  formBind('/trainings/'+selected,f=>({date:f.get('date'),kind:f.get('kind'),minutes:+f.get('minutes'),rpe:+f.get('rpe'),focus:+f.get('focus'),note:f.get('note')}),async result=>{current=result;const added=current.trainings.find(s=>!previous.has(s.id));$('#modal').close();await render();if(added)reflectionDialog(added.id);else toast('Занятие сохранено');});
+}
+function reflectionDialog(id){
+  modal('Как прошло занятие?',`<p>Три коротких ответа помогут связать состояние до тренировки с тем, как она прошла.</p><form id="modal-form"><div class="form-grid"><label class="field">Как прошло занятие в целом?<input name="quality" type="number" min="1" max="10" value="7" required><small>1 — не получилось, 10 — отлично</small></label><label class="field">Сколько энергии осталось после?<input name="energy_after" type="number" min="1" max="10" value="6" required></label>${selectField('discomfort_after','Дискомфорт после занятия',[['none','Не было'],['lower','Меньше'],['same','Без изменений'],['increased','Усилился']],'none')}<label class="field full">Что стоит запомнить? · необязательно<textarea name="note" maxlength="500" placeholder="Личная заметка, тренер её не видит"></textarea></label></div><p class="form-error" role="alert"></p><div class="form-actions"><button class="btn lime" type="submit">Сохранить ответ →</button></div></form>`);
+  formBind('/trainings/'+selected+'/'+id+'/reflection',f=>({quality:+f.get('quality'),energy_after:+f.get('energy_after'),discomfort_after:f.get('discomfort_after'),note:f.get('note')}),async result=>{current=result;$('#modal').close();await render();toast('Ответ после занятия сохранён');});
+}
+function explainRpe(){
+  const help=`<p>RPE — твоя собственная оценка того, насколько тяжёлым ощущалось занятие. Это не показатель часов и не медицинское измерение.</p><ol class="plan-steps"><li>1–2 — очень легко</li><li>3–4 — легко</li><li>5–6 — умеренно</li><li>7 — тяжело</li><li>8 — очень тяжело</li><li>9 — почти максимум</li><li>10 — максимум</li></ol><p>Пример: 90 минут тенниса и RPE 8/10 означают, что занятие ощущалось очень тяжёлым, но не предельным.</p>`;
+  const form=$('#modal-form');
+  if(form){if(!$('#rpe-help',form))form.insertAdjacentHTML('beforeend',`<div id="rpe-help" class="notice">${help}</div>`);return;}
+  modal('Что такое RPE?',help);
 }
 async function coachDialog(id){
   const s=await api('/state/'+id),a=s.assessment;
@@ -241,8 +306,15 @@ async function coachDialog(id){
 }
 
 async function liveReport(id){
-  const p=await api('/coach/players/'+id),a=p.assessment;
-  modal('Сводка: '+p.name,`${status(a)}<p>${esc(a.summary)}</p><p>Последний опрос: ${p.last_checkin?fmtDate(p.last_checkin.date):'пока нет'} · занятий за 30 дней: ${p.training_count}</p>${p.context?.goal?`<p>Цель игрока: ${esc(p.context.goal)}</p>`:''}${p.context?.next_match?`<p>Следующий матч: ${fmtDate(p.context.next_match)}</p>`:''}<ul class="factor-list">${a.factors.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><p class="score-explainer">Сводка по самооценке игрока. Это не диагноз и не медицинский допуск к тренировкам.</p>`);
+  const p=await api('/coach/players/'+id),a=p.assessment, context=p.context||{};
+  modal('Профиль игрока: '+p.name,`${status(a)}<div class="metric-grid"><div class="metric"><strong>${a.score??'—'}</strong><small>индекс состояния</small></div><div class="metric"><strong>${p.training_count}</strong><small>занятий за 30 дней</small></div><div class="metric"><strong>${a.reported_days}/7</strong><small>дней с опросом</small></div></div><h3>Контекст игрока</h3><p>Уровень: ${esc({beginner:'начинаю',intermediate:'играю регулярно',advanced:'опытный игрок'}[context.level]||'не указан')} · занятий в неделю: ${context.sessions_per_week??'—'}</p>${context.goal?`<p>Цель: ${esc(context.goal)}</p>`:'<p class="score-explainer">Цель пока не заполнена.</p>'}${context.next_match?`<p>Ближайший матч: ${fmtDate(context.next_match)}</p>`:''}<h3>Что заметила система</h3><p>${esc(a.summary)}</p><ul class="factor-list">${a.factors.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>${p.last_checkin?`<h3>Последний опрос · ${fmtDate(p.last_checkin.date)}</h3><div class="table-wrap"><table><tbody><tr><th>Сон</th><td>${p.last_checkin.sleep} ч</td><th>Энергия</th><td>${p.last_checkin.energy}/5</td></tr><tr><th>Стресс</th><td>${p.last_checkin.stress}/5</td><th>Усталость</th><td>${p.last_checkin.fatigue}/5</td></tr><tr><th>Дискомфорт</th><td>${p.last_checkin.discomfort}/10</td><th>Ограничение</th><td>${p.last_checkin.limitation?'да':'нет'}</td></tr></tbody></table></div>`:''}<p class="score-explainer">Данные доступны только после согласия игрока. Это описательная сводка, не диагноз и не медицинский допуск.</p>`);
+  if(p.last_training)$('#modal-content .modal-inner').insertAdjacentHTML('beforeend',`<h3>Последнее занятие</h3><p>${esc(p.last_training.minutes)} мин · тяжесть ${esc(p.last_training.rpe)}/10${p.last_training.quality?` · качество ${esc(p.last_training.quality)}/10`:''}</p><p class="score-explainer">RPE — личная оценка игрока, насколько тяжёлой была тренировка.</p>`);
+}
+
+// После регистрации игроку показываем короткое знакомство с профилем. Данные можно пропустить и заполнить позже.
+function welcomeProfile(){
+  modal('Расскажи о себе',`<p>Это займёт минуту. Ответы помогают сравнивать тебя с твоей обычной нагрузкой.</p><form id="welcome-profile-form"><div class="form-grid"><label class="field">Уровень<select name="level"><option value="beginner">Начинаю</option><option value="intermediate">Играю регулярно</option><option value="advanced">Опытный игрок</option></select></label><label class="field">Главная цель<input name="goal" maxlength="120" placeholder="Например, увереннее играть матч"></label><label class="field">Сколько тренировок обычно в неделю<input name="sessions_per_week" type="number" min="0" max="14" value="2" required></label><label class="field">Ближайший матч · необязательно<input name="next_match" type="date" min="${today()}"></label></div><p class="form-error" role="alert"></p><div class="form-actions"><button type="button" class="btn secondary" data-close>Заполню позже</button><button type="submit" class="btn lime">Сохранить профиль →</button></div></form>`);
+  $('#welcome-profile-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.target, f=new FormData(form), button=$('[type=submit]',form);button.disabled=true;$('.form-error',form).textContent='';try{await api('/me/context',{level:f.get('level'),goal:f.get('goal'),sessions_per_week:+f.get('sessions_per_week'),next_match:f.get('next_match')||null},'PUT');current=await api('/me/state');$('#modal').close();await render();toast('Профиль сохранён');}catch(error){$('.form-error',form).textContent=error.message;}finally{button.disabled=false;}});
 }
 
 // Делегирование событий не требует повторного навешивания после каждой отрисовки.
@@ -253,9 +325,12 @@ document.addEventListener('click',e=>{
   if(button.dataset.checkin)return checkinDialog(button.dataset.checkin);
   if(button.dataset.coach)return safely(()=>coachDialog(button.dataset.coach));
   if(button.dataset.liveReport)return safely(()=>liveReport(button.dataset.liveReport));
+  if(button.dataset.reflect)return reflectionDialog(button.dataset.reflect);
   if(button.dataset.role){signupRole=button.dataset.role;return onboarding();}
   if(button.dataset.scenario)return safely(async()=>{button.disabled=true;try{current=await api('/scenario/'+selected,{name:button.dataset.scenario});await render();toast('Демо-сценарий применён');}finally{button.disabled=false;}});
   const action=button.dataset.action;
+  if(action==='ai-advice')return safely(async()=>{localStorage.setItem('rg_ai_consent_'+account.email,'yes');button.disabled=true;await loadAdvice(true);button.disabled=false;});
+  if(action==='explain-rpe')return explainRpe();
   if(action==='theme-toggle'){
     const next=document.documentElement.dataset.theme==='dark'?'light':'dark';
     document.documentElement.dataset.theme=next;

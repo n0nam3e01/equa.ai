@@ -41,6 +41,14 @@ class Training(Strict):
         return self
 
 
+class Reflection(Strict):
+    # Ответ после занятия хранится рядом с самой тренировкой.
+    quality: int = Field(ge=1, le=10)
+    energy_after: int = Field(ge=1, le=10)
+    discomfort_after: Literal['none', 'lower', 'same', 'increased']
+    note: str = Field(default='', max_length=500)
+
+
 class Decision(Strict):
     action: Literal['discuss', 'lighter', 'rest']
     note: str = Field(min_length=1, max_length=500)

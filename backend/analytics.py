@@ -4,7 +4,71 @@
 в API. Недостаток истории и устаревшие отчёты видны пользователю отдельно от индекса.
 """
 from datetime import date, timedelta
-from statistics import median
+from statistics import median, mean
+
+
+def score_details(checkin):
+    """Return the exact deterministic terms used by the existing score."""
+    if not checkin:
+        return None
+    deductions = {
+        'energy': (5 - checkin['energy']) * 7,
+        'fatigue': (checkin['fatigue'] - 1) * 6,
+        'stress': (checkin['stress'] - 1) * 5,
+        'discomfort': checkin['discomfort'] * 3,
+    }
+    return {'start': 100, 'deductions': deductions,
+            'score': round(max(0, min(100, 100 - sum(deductions.values())))),
+            'note': 'Сон сравнивается с личной историей, но в формулу индекса не входит.'}
+
+
+def personal_baseline(checkins):
+    """Compare the latest report with the player's own previous 21 days."""
+    if not checkins:
+        return {'sample_size': 0, 'ready': False, 'changes': []}
+    dated = sorted(checkins, key=lambda item: item['date'])
+    latest = dated[-1]
+    cutoff = date.fromisoformat(latest['date']) - timedelta(days=21)
+    previous = [item for item in dated[:-1] if date.fromisoformat(item['date']) >= cutoff]
+    if len(previous) < 5:
+        return {'sample_size': len(previous), 'ready': False, 'changes': [],
+                'message': 'Продолжай отмечать состояние: для личного сравнения нужно ещё несколько дней.'}
+    labels = {'sleep': 'Сон', 'energy': 'Энергия', 'fatigue': 'Усталость',
+              'stress': 'Стресс', 'discomfort': 'Дискомфорт'}
+    thresholds = {'sleep': 0.75, 'energy': 0.75, 'fatigue': 0.75,
+                  'stress': 0.75, 'discomfort': 1.0}
+    changes = []
+    for field, label in labels.items():
+        usual = round(median(item[field] for item in previous), 1)
+        value = latest[field]
+        delta = value - usual
+        direction = 'выше' if delta >= thresholds[field] else 'ниже' if delta <= -thresholds[field] else 'близко к обычному'
+        changes.append({'field': field, 'label': label, 'value': value,
+                        'baseline': usual, 'direction': direction, 'delta': round(delta, 1)})
+    return {'sample_size': len(previous), 'ready': True, 'changes': changes,
+            'message': 'Сравнение с твоими предыдущими ответами за 21 день.'}
+
+
+def session_patterns(trainings):
+    """Only descriptive associations on completed, paired sessions."""
+    paired = [s for s in trainings if s.get('before') and s.get('after')]
+    count = len(paired)
+    if count < 5:
+        return {'sample_size': count, 'stage': 'collecting', 'observations': []}
+    observations = []
+    higher = [s for s in paired if s['before'].get('energy', 0) >= 4]
+    lower = [s for s in paired if s['before'].get('energy', 0) <= 2]
+    if len(higher) >= 2 and len(lower) >= 2:
+        high_quality = mean(s['after']['quality'] for s in higher)
+        low_quality = mean(s['after']['quality'] for s in lower)
+        observations.append(f'При высокой энергии до занятия средняя оценка тренировки была {high_quality:.1f}/10 ({len(higher)} занятий); при низкой — {low_quality:.1f}/10 ({len(lower)} занятий). Это совпадение в твоих записях, не причина.')
+    if count >= 10:
+        hard = [s for s in paired if s['rpe'] >= 8]
+        if len(hard) >= 2:
+            low_after = sum(s['after']['energy_after'] <= 4 for s in hard)
+            observations.append(f'После {low_after} из {len(hard)} очень тяжёлых по твоей оценке занятий энергия была 4/10 или ниже.')
+    return {'sample_size': count, 'stage': 'trend' if count >= 10 else 'early',
+            'observations': observations or ['Пока нет устойчивого сочетания показателей. Продолжай заполнять ответы после тренировки.']}
 
 
 def assess(checkins, sessions):
@@ -18,14 +82,17 @@ def assess(checkins, sessions):
     prev_load = sum(s['minutes'] * s['rpe'] for s in previous)
     base = {'version': 'descriptive-v1', 'load': load, 'previous_load': prev_load,
             'reported_days': len({c['date'] for c in dated if 0 <= (today-date.fromisoformat(c['date'])).days < 7}),
-            'history_days': len(history), 'synthetic': True}
+            'history_days': len(history), 'synthetic': True,
+            'baseline': personal_baseline(dated), 'patterns': session_patterns(sessions),
+            'score_details': score_details(latest)}
     if not latest:
         return {**base, 'score': None, 'level': 'unknown', 'label': 'Нужен чек-ин',
                 'factors': ['Добавь первый отчёт о состоянии.'], 'quality': 'Нет данных',
                 'plan': plan('unknown'), 'insights': [], 'summary': 'Заполни опрос, чтобы увидеть разбор.'}
     # Относительный учебный индекс: диапазон 0–100, а не вероятность или допуск к игре.
-    score = round(max(0, min(100, 100 - (5-latest['energy'])*7 - (latest['fatigue']-1)*6
-                          - (latest['stress']-1)*5 - latest['discomfort']*3)))
+    score = base['score_details']['score']
+    previous_score = score_details(dated[-2])['score'] if len(dated) > 1 else None
+    base['score_change'] = score - previous_score if previous_score is not None else None
     factors = []
     if latest['fatigue'] >= 4: factors.append('Выраженная усталость в последнем отчёте.')
     if latest['stress'] >= 4: factors.append('Высокая субъективная оценка стресса.')

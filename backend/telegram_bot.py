@@ -150,10 +150,17 @@ async def webhook(request: Request):
         recent = time.strftime('%Y-%m-%d', time.gmtime(time.time()-30*86400))
         checks = [{k:v for k,v in r['payload'].items() if k in ('date','sleep','energy','fatigue','stress','discomfort','limitation')}
                   for r in records if r['kind']=='checkin' and r['payload'].get('date','') >= recent]
-        sessions = [{k:v for k,v in r['payload'].items() if k in ('date','kind','minutes','rpe','focus')}
+        sessions = [{**{k:v for k,v in r['payload'].items() if k in ('date','kind','minutes','rpe','focus')},
+                     'quality': (r['payload'].get('after') or {}).get('quality')}
                     for r in records if r['kind']=='training' and r['payload'].get('date','') >= recent]
         a = assess(checks, sessions)
-        send(chat_id, f"{p[0]['display_name'] if p else 'Игрок'}\n{a['label']}\n{a['summary']}\nОпросов за 7 дней: {a['reported_days']}.\nЭто не медицинский диагноз.", token)
+        last = sessions[-1] if sessions else None
+        training_line = (f"Последнее занятие: {last['minutes']} мин, тяжесть {last['rpe']}/10"
+                         + (f", качество {last['quality']}/10" if last.get('quality') else '')
+                         + '.\n') if last else ''
+        send(chat_id, f"{p[0]['display_name'] if p else 'Игрок'}\n{a['label']}\n{a['summary']}\n"
+             f"Опросов за 7 дней: {a['reported_days']}.\n{training_line}"
+             "Тяжесть (RPE) — субъективная оценка игрока. Это не медицинский диагноз.", token)
         return {'ok': True}
     send(chat_id, 'Команды: /players, /report 1, /unlink.', token)
     return {'ok': True}

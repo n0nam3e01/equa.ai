@@ -30,6 +30,10 @@
   --chart-grid: #344139;
   --shadow: 0 12px 32px #0000001f;
   --focus: #c4ebaa;
+  --button-bg: #89b9a4;
+  --button-hover: #a7d0b9;
+  --button-fg: #0b1710;
+  --status-fg: #b4dfbd;
 }
 
 :root[data-theme='light'] {
@@ -56,6 +60,10 @@
   --chart-grid: #e1e9e1;
   --shadow: 0 8px 28px #26392b0b;
   --focus: #326e51;
+  --button-bg: #306650;
+  --button-hover: #25523f;
+  --button-fg: #ffffff;
+  --status-fg: #286143;
 }
 
 body { background: var(--bg); color: var(--ink); transition: background-color .22s ease, color .22s ease; }
@@ -92,7 +100,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 .hero { background: var(--hero); color: var(--hero-text); }
 .hero::before {
-  background: linear-gradient(90deg, var(--hero) 0%, color-mix(in srgb, var(--hero) 88%, transparent) 43%, color-mix(in srgb, var(--hero) 32%, transparent) 100%), url('/static/hero.png') center 56% / cover;
+  background: linear-gradient(90deg, var(--hero) 0%, color-mix(in srgb, var(--hero) 88%, transparent) 43%, color-mix(in srgb, var(--hero) 32%, transparent) 100%), url('/static/hero-court.svg') center 56% / cover;
 }
 .hero p { color: var(--hero-muted); }
 .hero .eyebrow { background: color-mix(in srgb, var(--panel) 55%, transparent); border-color: var(--line); }
@@ -103,21 +111,23 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   box-shadow: var(--shadow);
 }
 .notice { background: var(--pale); border-color: var(--line); color: var(--muted); }
-.status { background: var(--pale); color: var(--green); }
+.status { background: var(--pale); color: var(--status-fg); }
 .status.caution { background: color-mix(in srgb, var(--amber) 15%, var(--panel)); color: var(--amber); }
 .status.attention { background: color-mix(in srgb, var(--red) 15%, var(--panel)); color: var(--red); }
 .status.unknown { background: var(--control); color: var(--muted); }
-:root[data-theme='light'] .status { color: #286143; }
 
-.btn { background: var(--green); color: #0b1710; }
-.btn:hover { background: color-mix(in srgb, var(--green) 80%, white); }
-:root[data-theme='light'] .btn { color: #ffffff; }
+.btn { background: var(--button-bg); color: var(--button-fg); }
+.btn:hover { background: var(--button-hover); }
 .btn.lime { background: var(--lime); color: #13231a; }
 .btn.lime:hover { background: color-mix(in srgb, var(--lime) 75%, white); }
 :root[data-theme='light'] .btn.lime { background: #cce5bc; color: #173721; }
+:root[data-theme='light'] .btn.lime:hover { background: #b8dca4; }
 .btn.secondary { background: var(--pale); color: var(--ink); }
+.btn.secondary:hover { background: var(--hover); }
 .btn.outline { color: var(--ink); border-color: var(--control-border); }
-.btn.danger { background: #a44f49; color: #ffffff; }
+.btn.outline:hover { background: var(--hover); }
+.btn.danger { background: #983f3a; color: #ffffff; }
+.btn.danger:hover { background: #82332f; }
 
 .field input, .field select, .field textarea, .inline-controls select, .chat-form input {
   background: var(--control);
@@ -133,6 +143,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 .role-option.active, .lesson-card.featured { background: var(--pale); border-color: var(--green); }
 .lesson-card:hover, .mood:hover, .prompt-button:hover { background: var(--hover); }
+.role-option:hover, .icon-button:hover, .close:hover { background: var(--hover); }
 .role-option small, .lesson-card small { color: var(--muted); }
 .code-box code { overflow-wrap: anywhere; }
 
@@ -212,6 +223,32 @@ dialog::backdrop { background: #060b09b8; }
 .decision { background: var(--pale); border-left-color: var(--green); }
 .bubble { background: var(--pale); }
 .bubble.user { background: var(--green); color: #0b1710; }
+
+/* Связанный сценарий «до — занятие — после» читается как три шага. */
+.journey { display: grid; gap: 10px; margin: 18px 0; }
+.journey > div { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 14px; align-items: start; padding: 13px 15px; background: var(--pale); border: 1px solid var(--line); border-radius: 11px; }
+.journey small { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.journey strong { font-size: 13px; line-height: 1.5; font-weight: 650; }
+.baseline-list { display: grid; gap: 0; margin: 14px 0; }
+.baseline-list > div { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.baseline-list > div:last-child { border-bottom: 0; }
+.baseline-list strong { min-width: 88px; }
+.baseline-list span { color: var(--muted); }
+.baseline-list b { margin-left: auto; font-size: 12px; color: var(--green); white-space: nowrap; }
+.baseline-list b.neutral { color: var(--muted); }
+.score-detail summary { cursor: pointer; font-weight: 750; color: var(--green); }
+.score-detail p { font-size: 13px; }
+.ai-advice { margin: 0 0 18px; border-left: 3px solid var(--green); }
+.ai-advice > p { max-width: 760px; font-size: 15px; line-height: 1.6; }
+.ai-advice small { color: var(--muted); }
+.ai-permission { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; display: flex; align-items: center; gap: 18px; justify-content: space-between; }
+.ai-permission p { color: var(--muted); font-size: 11px; max-width: 650px; margin: 0; }
+.ai-permission .btn { flex: none; }
+.consent-preview { padding: 16px; margin: 16px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--pale); }
+.consent-preview strong { display: block; font-size: 12px; margin-top: 8px; }
+.consent-preview strong:first-child { margin-top: 0; }
+.consent-preview p { font-size: 12px; margin: 5px 0 12px; }
+@media (max-width: 700px) { .ai-permission { align-items: stretch; flex-direction: column; } .journey > div { grid-template-columns: 60px minmax(0, 1fr); } .baseline-list > div { flex-wrap: wrap; } }
 
 @media (max-width: 700px) {
   .ring-large .ring { width: 160px; }

@@ -4,14 +4,16 @@
 Пароли не сохраняются нашим сервером, токены доступны только HttpOnly cookies.
 """
 import os
+import json
+from statistics import mean
 from datetime import date
-from uuid import uuid4
+from uuid import uuid4, UUID
 from typing import Literal
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import Field
-from backend.schemas import Strict, Checkin, Training
-from backend.analytics import assess
+from backend.schemas import Strict, Checkin, Training, Reflection
+from backend.analytics import assess, score_details
 
 router = APIRouter(prefix='/api')
 PROJECT_URL = 'https://oitbqygljigiqrczqzdd.supabase.co'
@@ -175,7 +177,7 @@ def records(auth):
     rows, offset = [], 0
     while True:
         batch = remote('GET', '/rest/v1/rg_personal_records', auth['token'], params={
-            'user_id': 'eq.'+auth['user']['id'], 'select': 'kind,payload,created_at',
+            'user_id': 'eq.'+auth['user']['id'], 'select': 'kind,entry_key,payload,created_at',
             'order': 'created_at.asc,id.asc', 'limit': 500, 'offset': offset})
         rows.extend(batch)
         if len(batch) < 500:
@@ -239,7 +241,7 @@ def personal_state(auth):
     require_role(auth, 'player')
     rows = records(auth)
     checks = sorted([r['payload'] for r in rows if r['kind']=='checkin'], key=lambda x:x['date'])
-    trainings = sorted([r['payload'] for r in rows if r['kind']=='training'], key=lambda x:x['date'])
+    trainings = sorted([{**r['payload'], 'id': r['entry_key']} for r in rows if r['kind']=='training'], key=lambda x:x['date'])
     name = auth['user'].get('user_metadata', {}).get('name') or 'Игрок'
     context = get_context(auth)
     assessment = assess(checks, trainings)
@@ -259,6 +261,60 @@ def get_state(auth=Depends(identity)):
     return personal_state(auth)
 
 
+@router.get('/me/advice')
+def daily_advice(auth=Depends(identity)):
+    """Gemini explains calculated signals; it never calculates the index."""
+    state = personal_state(auth)
+    assessment = state['assessment']
+    fallback = assessment['summary']
+    key = os.getenv('GEMINI_API_KEY')
+    if not key or not state['checkins']:
+        return {'text': fallback, 'source': 'algorithm'}
+    # Сервер учитывает всю историю, а в модель посылает компактные агрегаты и последние
+    # записи каждой категории: это уменьшает стоимость и не передаёт имя/email.
+    trainings = state['trainings']
+    checkins = state['checkins']
+    reflected = [item for item in trainings if item.get('after')]
+    compact = {
+        'profile': state['context'],
+        'totals': {'checkins': len(checkins), 'trainings': len(trainings),
+                   'with_reflection': len(reflected),
+                   'average_quality': round(mean(item['after']['quality'] for item in reflected), 1) if reflected else None},
+        'recent_checkins': [{key: row.get(key) for key in
+                            ('date', 'sleep', 'energy', 'fatigue', 'stress', 'discomfort', 'limitation', 'resting_hr', 'hrv')}
+                           for row in checkins[-7:]],
+        'recent_trainings': [{key: row.get(key) for key in ('date', 'kind', 'minutes', 'rpe', 'focus', 'before')}
+                             | {'after': {key: row['after'].get(key) for key in ('quality', 'energy_after', 'discomfort_after')}
+                                if row.get('after') else None,
+                                'note': (row.get('note') or '')[:100],
+                                'reflection_note': ((row.get('after') or {}).get('note') or '')[:100]}
+                             for row in trainings[-5:]],
+        'calculated': {'score': assessment['score'], 'status': assessment['label'],
+                       'score_change': assessment.get('score_change'),
+                       'baseline': assessment['baseline'],
+                       'patterns': assessment['patterns'], 'factors': assessment['factors'][:4]}}
+    prompt = ('По JSON напиши на русском 2 коротких предложения: сводка состояния и один следующий шаг. '
+              'Индекс рассчитан сервером. Только факты из JSON; без диагноза, допуска к игре и причинных утверждений. '
+              'Если данных мало, скажи об этом. При выраженном дискомфорте предложи специалиста. JSON: '
+              +json.dumps(compact, ensure_ascii=False, separators=(',', ':')))
+    try:
+        model = os.getenv('GEMINI_MODEL', 'gemini-3.8-flash')
+        with httpx.Client(timeout=8) as client:
+            response = client.post(
+                'https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',
+                headers={'x-goog-api-key': key},
+                json={'contents':[{'parts':[{'text':prompt}]}],
+                      'generationConfig':{'temperature':0.2,'maxOutputTokens':120}})
+        response.raise_for_status()
+        parts = response.json()['candidates'][0]['content']['parts']
+        text = ' '.join(part.get('text', '') for part in parts).strip()
+        if text:
+            return {'text': text[:700], 'source': 'gemini'}
+    except (httpx.HTTPError, KeyError, IndexError, ValueError):
+        pass
+    return {'text': fallback, 'source': 'algorithm'}
+
+
 def save(auth, kind, payload):
     require_role(auth, 'player')
     # Один опрос на дату: повторная отправка обновляет запись атомарно в PostgreSQL.
@@ -267,6 +323,7 @@ def save(auth, kind, payload):
            params={'on_conflict':'user_id,kind,entry_key'},
            headers={'Prefer':'resolution=merge-duplicates,return=minimal'},
            json={'user_id':auth['user']['id'], 'kind':kind, 'entry_key':entry, 'payload':payload})
+    return entry
 
 
 @router.post('/me/checkins')
@@ -277,7 +334,34 @@ def checkin(body: Checkin, auth=Depends(identity)):
 
 @router.post('/me/trainings')
 def training(body: Training, auth=Depends(identity)):
-    save(auth, 'training', body.model_dump(mode='json'))
+    # Снимок «до» берём на дату занятия и сохраняем вместе с тренировкой.
+    require_role(auth, 'player')
+    checks = [r['payload'] for r in records(auth) if r['kind'] == 'checkin' and r['payload']['date'] == body.date.isoformat()]
+    before = None
+    if checks:
+        check = checks[-1]
+        before = {key: check[key] for key in ('date', 'sleep', 'energy', 'fatigue', 'stress', 'discomfort')}
+        before['score'] = score_details(check)['score']
+    save(auth, 'training', {**body.model_dump(mode='json'), 'before': before})
+    return personal_state(auth)
+
+
+@router.put('/me/trainings/{training_id}/reflection')
+def reflect_training(training_id: str, body: Reflection, auth=Depends(identity)):
+    require_role(auth, 'player')
+    try:
+        training_id = str(UUID(training_id))
+    except (TypeError, ValueError):
+        raise HTTPException(404, 'Тренировка не найдена.')
+    rows = remote('GET', '/rest/v1/rg_personal_records', auth['token'], params={
+        'user_id': 'eq.'+auth['user']['id'], 'kind': 'eq.training',
+        'entry_key': 'eq.'+training_id, 'select': 'payload', 'limit': 1})
+    if not rows:
+        raise HTTPException(404, 'Тренировка не найдена.')
+    payload = {**rows[0]['payload'], 'after': body.model_dump()}
+    remote('PATCH', '/rest/v1/rg_personal_records', auth['token'], params={
+        'user_id': 'eq.'+auth['user']['id'], 'kind': 'eq.training', 'entry_key': 'eq.'+training_id},
+        json={'payload': payload})
     return personal_state(auth)
 
 
@@ -329,6 +413,7 @@ def coach_report_data(auth, player_id):
         raise HTTPException(404, 'Игрок не найден.')
     return {'player_id': shared['player_id'], 'name': shared['name'],
             'last_checkin': shared['checkins'][-1] if shared['checkins'] else None,
+            'last_training': shared['trainings'][-1] if shared['trainings'] else None,
             'assessment': assess(shared['checkins'], shared['trainings']),
             'training_count': len(shared['trainings']), 'context': shared.get('context') or {}}
 

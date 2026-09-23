@@ -42,7 +42,13 @@ def personal(monkeypatch, tmp_path):
             for key in list(stored):
                 if key[0]==token: del stored[key]
             return None
-        return [r for (owner,_,_),r in stored.items() if owner==token]
+        if method == 'PATCH':
+            key=(token,'training',kwargs['params']['entry_key'][3:])
+            stored[key]['payload']=kwargs['json']['payload']
+            return None
+        return [r for (owner,kind,entry),r in stored.items() if owner==token
+                and ('kind' not in kwargs['params'] or kwargs['params']['kind']=='eq.'+kind)
+                and ('entry_key' not in kwargs['params'] or kwargs['params']['entry_key']=='eq.'+entry)]
     monkeypatch.setattr(accounts,'remote',remote)
     with TestClient(app) as client:
         yield client
@@ -63,7 +69,12 @@ def test_personal_lifecycle_and_isolation(personal):
     assert result['mode']=='personal' and result['assessment']['synthetic'] is False
     assert len(result['checkins'])==1
     assert c.post('/api/me/checkins',json={**payload,'sleep':8}).json()['checkins'][0]['sleep']==8
-    assert c.post('/api/me/trainings',json={'minutes':45,'rpe':3,'focus':4}).status_code==200
+    session=c.post('/api/me/trainings',json={'minutes':45,'rpe':3,'focus':4}).json()['trainings'][0]
+    assert session['before']['energy']==2
+    reflected=c.put('/api/me/trainings/'+session['id']+'/reflection',json={
+        'quality':7,'energy_after':5,'discomfort_after':'same','note':'Только для меня'})
+    assert reflected.status_code==200
+    assert reflected.json()['trainings'][0]['after']['note']=='Только для меня'
     assert c.post('/api/me/checkins',json={**payload,'user_id':'bob'}).status_code==422
     assert c.post('/api/me/checkins',json=payload,headers={'Origin':'https://other.test'}).status_code==403
     c.post('/api/auth/logout')

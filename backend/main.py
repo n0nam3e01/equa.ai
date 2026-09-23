@@ -13,9 +13,9 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from backend.analytics import assess, demo_records
+from backend.analytics import assess, demo_records, score_details
 from backend.content import LESSONS, public_lessons
-from backend.schemas import Checkin, Training, Decision, Message, Answer, ImportData, Scenario
+from backend.schemas import Checkin, Training, Reflection, Decision, Message, Answer, ImportData, Scenario
 from backend.storage import Storage
 from backend.accounts import router as accounts_router
 from backend.telegram_bot import router as telegram_router
@@ -105,11 +105,14 @@ def state(ws, player):
     for r in records:
         if r['kind'] == 'checkin': by_date[r['payload']['date']] = r['payload']
     checks = sorted(by_date.values(), key=lambda c: c['date'])
-    sessions = [r['payload'] for r in records if r['kind']=='training']
+    reflections = {r['payload']['training_id']: r['payload']['after'] for r in records
+                   if r['kind']=='decision' and 'training_id' in r['payload']}
+    sessions = [{**r['payload'], 'id': r['id'], 'after': reflections.get(r['id'])} for r in records if r['kind']=='training']
     return {'player': next(p for p in PLAYERS if p['id']==player), 'checkins': checks,
             'trainings': sessions, 'assessment': assess(checks,sessions),
             'completed': sorted({r['payload']['lesson'] for r in records if r['kind']=='lesson'}),
-            'decisions': [{**r['payload'], 'created_at': r['created_at']} for r in records if r['kind']=='decision']}
+            'decisions': [{**r['payload'], 'created_at': r['created_at']} for r in records
+                          if r['kind']=='decision' and 'training_id' not in r['payload']]}
 
 
 @app.get('/api/state/{player}')
@@ -134,8 +137,23 @@ def checkin(body: Checkin, player: str = Depends(player_id), ws: str = Depends(w
 
 @app.post('/api/trainings/{player}')
 def training(body: Training, player: str = Depends(player_id), ws: str = Depends(workspace)):
-    app.state.storage.add_many(ws, player, [('training',body.model_dump(mode='json'))])
+    checks = [c for c in state(ws, player)['checkins'] if c['date'] == body.date.isoformat()]
+    before = None
+    if checks:
+        check = checks[-1]
+        before = {key: check[key] for key in ('date', 'sleep', 'energy', 'fatigue', 'stress', 'discomfort')}
+        before['score'] = score_details(check)['score']
+    app.state.storage.add_many(ws, player, [('training',{**body.model_dump(mode='json'), 'before': before})])
     return state(ws,player)
+
+
+@app.put('/api/trainings/{player}/{training_id}/reflection')
+def demo_reflection(player: str, training_id: str, body: Reflection, ws: str = Depends(workspace)):
+    # Тренировка должна принадлежать текущей изолированной демо-сессии.
+    if not any(s['id'] == training_id for s in state(ws, player)['trainings']):
+        raise HTTPException(404, 'Тренировка не найдена.')
+    app.state.storage.add_many(ws, player, [('decision', {'training_id': training_id, 'after': body.model_dump()})])
+    return state(ws, player)
 
 
 @app.post('/api/import/{player}')

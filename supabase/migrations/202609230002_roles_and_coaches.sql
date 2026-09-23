@@ -117,8 +117,11 @@ BEGIN
      AND r.entry_key >= (current_date - 30)::text), '[]'::jsonb),
   'trainings', coalesce((SELECT jsonb_agg(jsonb_build_object(
    'date', r.payload->>'date', 'minutes', r.payload->'minutes',
-   'rpe', r.payload->'rpe', 'kind', r.payload->'kind', 'focus', r.payload->'focus')
-   ORDER BY r.entry_key) FROM public.rg_personal_records r
+   'rpe', r.payload->'rpe', 'kind', r.payload->'kind', 'focus', r.payload->'focus',
+   'quality', r.payload->'after'->'quality',
+   'energy_after', r.payload->'after'->'energy_after',
+   'discomfort_after', r.payload->'after'->'discomfort_after')
+   ORDER BY r.created_at) FROM public.rg_personal_records r
    WHERE r.user_id = input_player AND r.kind = 'training'
      AND r.payload->>'date' >= (current_date - 30)::text), '[]'::jsonb))
  INTO result FROM public.rg_profiles p WHERE p.user_id = input_player;
