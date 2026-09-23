@@ -10,3 +10,6 @@ output/
 tools/vendor/
 .vercel/
 *.pyc
+
+.vercel
+.env*

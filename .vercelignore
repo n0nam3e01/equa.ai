@@ -1,0 +1,13 @@
+# Локальные окружения и кэши не нужны в облачной функции.
+.venv/
+node_modules/
+.pytest_cache/
+__pycache__/
+.playwright-cli/
+output/
+tmp/
+data/
+.env
+.env.local
+.git/
+tools/vendor/
